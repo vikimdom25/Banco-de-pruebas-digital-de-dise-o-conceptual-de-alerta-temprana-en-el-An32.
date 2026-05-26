@@ -1,0 +1,157 @@
+<?xml version="1.0"?>
+
+<system name="PropGovernor">
+
+<property value="1245">fcs/prop-governor/propeller-speed-target</property>
+<property value="8">fcs/prop-governor/min-blade-angle</property>
+<property value="8">fcs/prop-governor/min-blade-angle[1]</property>
+
+<!--******************* LEFT PROPELLER ***********************-->
+<channel name="Governor Channel Left">
+
+  <switch name="fcs/prop-governor/gov-left-active">
+   <default value="0"/>
+   <test logic="AND" value="1">
+	/an24/FireFeather/feather-by-kfl_l NE 1
+	/an24/FireFeather/feather-by-test_l NE 1
+	/an24/FireFeather/feather-by-ikm[0] NE 1
+<!-- /engines/engine[0]/oil-pressure-psi GT 10
+ feathering done by dedicated pump -->
+   </test>
+  </switch>
+
+</channel>
+
+<channel name="Autofeathering Left" execrate="60">
+
+  <switch name="/an24/FireFeather/feather-by-ikm[0]">
+   <default value="0"/>
+   <test value="1">
+	/an24/FireFeather/sw_check-by-ikm_l EQ 1
+	/engines/engine[0]/thruster/torque LT 700
+   </test>
+  </switch>
+
+  <!--switch name="fcs/prop-governor/feather-by-thrust[0]">
+   <default value="0"/>
+   <test value="1">
+     /engines/engine[0]/thrust-lb LT 1000
+   </test>
+   <output>fcs/feather-by-thrust[0]</output>
+   <output>/controls/engines/engine[0]/propeller-feather</output>
+  </switch-->
+
+  </channel>
+
+<channel name="LeftGovernor" execute="fcs/prop-governor/gov-left-active">
+
+  <summer name="fcs/prop-governor/propeller-speed-error-rpm[0]">
+   <input>fcs/prop-governor/propeller-speed-target</input>
+   <input>-propulsion/engine[0]/propeller-rpm</input>
+  </summer>
+
+  <pid name="fcs/prop-governor/blade-controller-pid[0]">
+   <input>fcs/prop-governor/propeller-speed-error-rpm[0]</input>
+   <kp> -0.001 </kp>
+   <ki> -0.0 </ki>
+   <kd> -0.0 </kd>
+   <!-- <trigger>fcs/prop-governor/windup-trigger[0]</trigger> -->
+  </pid>
+
+  <summer name="propulsion/engine[0]/blade-angle">
+   <input>fcs/prop-governor/blade-controller-pid[0]</input>
+   <input>propulsion/engine[0]/blade-angle</input>
+   <clipto>
+    <min>fcs/prop-governor/min-blade-angle[0]</min>
+    <max>92.5</max>
+   </clipto>
+  </summer>
+
+ <!-- <switch name="fcs/prop-governor/windup-trigger[0]">
+   <default value="0.0"/>
+   <test value="-1.0">
+     fcs/prop-governor/blade-controller-pid[0] LT -1.0
+   </test>
+   <test value="1.0">
+     fcs/prop-governor/propeller-speed-error-switch[0] GT 0.0
+     fcs/prop-governor/blade-controller-pid[0] GT 1.0
+   </test>
+  </switch> -->
+
+</channel>
+
+<!--******************* RIGHT PROPELLER ***********************-->
+<channel name="Governor Channel Right Switch">
+
+  <switch name="fcs/prop-governor/gov-right-active">
+   <default value="0"/>
+   <test logic="AND" value="1">
+ 	/an24/FireFeather/feather-by-kfl_r NE 1
+	/an24/FireFeather/feather-by-test_r NE 1
+	/an24/FireFeather/feather-by-ikm[1] NE 1
+<!-- /engines/engine[1]/oil-pressure-psi GT 10
+ feathering done by dedicated pump -->
+   </test>
+  </switch>
+
+</channel>
+
+<channel name="Autofeathering Right" execrate="60">
+
+  <switch name="/an24/FireFeather/feather-by-ikm[1]">
+   <default value="0"/>
+   <test value="1">
+	/an24/FireFeather/sw_check-by-ikm_r EQ 1
+	/engines/engine[1]/thruster/torque LT 700
+   </test>
+  </switch>
+
+  <!--switch name="fcs/prop-governor/feather-by-thrust[1]">
+   <default value="0"/>
+   <test value="1">
+     /engines/engine[0]/thrust-lb LT 1000
+   </test>
+   <output>fcs/feather-by-thrust[1]</output>
+   <output>/controls/engines/engine[1]/propeller-feather</output>
+  </switch-->
+
+  </channel>
+
+<channel name="RightGovernor" execute="fcs/prop-governor/gov-right-active">
+
+  <summer name="fcs/prop-governor/propeller-speed-error-rpm[1]">
+   <input>fcs/prop-governor/propeller-speed-target</input>
+   <input>-propulsion/engine[1]/propeller-rpm</input>
+  </summer>
+
+  <pid name="fcs/prop-governor/blade-controller-pid[1]">
+   <input>fcs/prop-governor/propeller-speed-error-rpm[1]</input>
+   <kp> -0.001 </kp>
+   <ki> -0.0 </ki>
+   <kd> -0.0 </kd>
+   <!-- <trigger>fcs/prop-governor/windup-trigger[1]</trigger> -->
+  </pid>
+
+  <summer name="propulsion/engine[1]/blade-angle">
+   <input>fcs/prop-governor/blade-controller-pid[1]</input>
+   <input>propulsion/engine[1]/blade-angle</input>
+   <clipto>
+    <min>fcs/prop-governor/min-blade-angle[1]</min>
+    <max>92.5</max>
+   </clipto>
+  </summer>
+
+ <!-- <switch name="fcs/prop-governor/windup-trigger[1]">
+   <default value="0.0"/>
+   <test value="-1.0">
+     fcs/prop-governor/blade-controller-pid[1] LT -1.0
+   </test>
+   <test value="1.0">
+     fcs/prop-governor/propeller-speed-error-switch[1] GT 0.0
+     fcs/prop-governor/blade-controller-pid[1] GT 1.0
+   </test>
+  </switch> -->
+
+</channel>
+
+</system>

@@ -1,0 +1,78 @@
+<?xml version="1.0"?>
+
+<PropertyList>
+
+<!--A1 left-->
+  <pitot>
+    <name>pitot</name>
+    <number>0</number>
+    <stall-deg>60</stall-deg>
+  </pitot>
+<!--A2 left (reserve)-->
+  <pitot>
+    <name>pitot</name>
+    <number>1</number>
+    <stall-deg>45</stall-deg>
+  </pitot>
+<!--A3 right-->
+  <pitot>
+    <name>pitot</name>
+    <number>2</number>
+    <stall-deg>60</stall-deg>
+  </pitot>
+
+<!--S1 left and S5 right-->
+  <static>
+    <name>static</name>
+    <number>0</number>
+    <tau>0.1</tau>
+    <type>1</type>
+    <error-factor>0.3</error-factor>
+  </static>
+
+<!--S2 left and S6 right-->
+  <static>
+    <name>static</name>
+    <number>1</number>
+    <tau>0.1</tau>
+    <type>1</type>
+    <error-factor>0.3</error-factor>
+  </static>
+
+<!--S4 left and S7 right-->
+  <static>
+    <name>static</name>
+    <number>2</number>
+    <tau>0.1</tau>
+    <type>1</type>
+    <error-factor>0.3</error-factor>
+  </static>
+
+<!--S3 left-->
+  <static>
+    <name>static</name>
+    <number>3</number>
+    <tau>0.1</tau>
+    <type>2</type>
+    <error-factor>0.8</error-factor>
+  </static>
+
+<!-- N1 emergency static port in radar nose -->
+  <static>
+    <name>static</name>
+    <number>4</number>
+    <tau>0.1</tau>
+    <type>0</type>
+    <error-factor>0.8</error-factor>
+  </static>
+
+<!-- N2 emergency static port in radar nose -->
+  <static>
+    <name>static</name>
+    <number>5</number>
+    <tau>0.1</tau>
+    <type>0</type>
+    <error-factor>0.7</error-factor>
+  </static>
+
+</PropertyList>
