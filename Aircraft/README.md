@@ -1,4 +1,4 @@
-Original model (an24b credits)
+Original model (an24b credits).
 =====
 
 An-24B for FlightGear flight simulator
