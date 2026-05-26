@@ -1,0 +1,119 @@
+<?xml version="1.0"?>
+<!--
+MILTHRUST   [LBS]
+MAXTHRUST   [LBS]
+idlen1      [%]
+maxn1       [%]
+betarangeend[%]
+    if ThrottleCmd < betarangeend/100.0 then engine power=idle, propeller pitch
+    is controled by ThrottleCmd (between MINPITCH and  REVERSEPITCH).
+    if ThrottleCmd > betarangeend/100.0 then engine power increases up to max reverse power
+reversemaxpower [%]
+    max engine power in reverse mode
+maxpower    [HP]
+psfc power specific fuel consumption [pph/HP] for N1=100%
+n1idle_max_delay [-] time constant for N1 change
+maxstartenginetime [sec]
+    after this time the automatic starting cycle is interrupted when the engine
+    doesn't start (0=automatic starting not present)
+startern1   [%]
+    when starting starter spin up engine to this spin
+ielumaxtorque [lb.ft]
+    if torque>ielumaxtorque limiters decrease the throttle
+    (ielu = Integrated Electronic Limiter Unit)
+itt_delay [-] time constant for ITT change
+    (ITT = Inter Turbine Temperature)
+-->
+
+<!-- AI-24, 2nd series (rescaled to match AI-20 / An-32 configuration) -->
+<turboprop_engine name="AI24_rescaled">
+  <milthrust unit="LBS">       12556.19771   </milthrust> 
+  <idlen1>                       90.0   </idlen1>
+  <idlen2>                       90.0   </idlen2>
+  <maxn1>                       100.0   </maxn1>
+  <maxn2>                       100.0   </maxn2>
+  <maxpower unit="HP">         5100.0   </maxpower>
+  <psfc unit="LBS/HR/HP">         0.495 </psfc> 
+  <n1idle_max_delay>              1     </n1idle_max_delay>
+  <maxstartingtime>               0     </maxstartingtime>
+  <startern1>                    24     </startern1>
+  <ielumaxtorque unit="FT*LB">    0     </ielumaxtorque> 
+  <itt_delay>                     0.05  </itt_delay>
+  <betarangeend>                 64     </betarangeend>
+  <reversemaxpower>              60     </reversemaxpower>
+
+  <function name="EnginePowerVC">
+   <table>
+    <description> Engine power, function of airspeed and pressure </description>
+    <independentVar lookup="row">atmosphere/rho-slugs_ft3</independentVar>
+    <independentVar lookup="column">velocities/ve-kts</independentVar>
+    <independentVar lookup="table">fcs/throttle-pos-norm</independentVar>
+    <tableData breakPoint="0.52">
+		0	97	194	291	340
+0.000800787	0.4386	0.4806	0.5205	0.598	0.6499
+0.000904867	0.4933	0.5405	0.5873	0.6707	0.7265
+0.001018993	0.548	0.6004	0.654	0.7434	0.803
+0.001143818	0.6046	0.6624	0.7239	0.8189	0.8846
+0.001280017	0.6665	0.7303	0.7983	0.9026	0.9725
+0.00142829	0.7286	0.7983	0.8748	0.9916	1.063
+0.001589358	0.7946	0.8706	0.9551	1.0829	1.1415
+0.001763967	0.8606	0.943	1.0239	1.1155	1.1787
+0.001952885	0.885	0.9697	1.0396	1.1472	1.2159
+0.002156907	0.8993	0.9853	1.0579	1.1632	1.1995
+0.002376848	0.9082	0.9951	1.0336	1.0935	1.1345
+0.002613549	0.9082	0.9951	1.0336	1.0935	1.1345
+    </tableData>
+    <tableData breakPoint="1.0">
+		0	97	194	291	340
+0.000800787	0.4591	0.4591	0.497	0.5461	0.5809
+0.000904867	0.5172	0.5172	0.5552	0.6136	0.6506
+0.001018993	0.5753	0.5753	0.6135	0.681	0.7204
+0.001143818	0.6337	0.6337	0.6743	0.7485	0.7901
+0.001280017	0.6962	0.6962	0.7388	0.8159	0.8599
+0.00142829	0.7586	0.7586	0.8048	0.8834	0.9111
+0.001589358	0.8247	0.8247	0.8795	0.9109	0.9105
+0.001763967	0.8921	0.8921	0.9134	0.9102	0.9099
+0.001952885	0.9128	0.9128	0.9116	0.9095	0.9093
+0.002156907	0.9105	0.9105	0.9099	0.9088	0.9087
+0.002376848	0.9082	0.9082	0.9081	0.9082	0.9081
+0.002613549	0.9082	0.9082	0.9081	0.9082	0.9081
+    </tableData>
+   </table>
+  </function>
+
+  <table name="EnginePowerRPM_N1" type="internal">
+    <description> Engine Power, function of RPM and N1 </description>
+    <tableData>
+            0   5    90   91.2   92.2  93.4  94.1  95.2  96.5  100
+         0  0   1.0  1.0   1.0    1.0   1.0   1.0   1.0   1.0  1.0
+       100  0   0.2  506   652    1494  2424  2820  3442  4038  5100
+    </tableData>
+  </table>
+
+  <table name="ITT_N1" type="internal">
+    <description> Inter-Turbine Temperature ITT [deg C] depending on N1 and engine run (0=off / 1=running) </description>
+    <tableData>
+              0     1
+        0     0     0
+       15   100   100
+       60   180   520
+       96   270   680
+      100   280   730
+    </tableData>
+  </table>
+
+  <table name="CombustionEfficiency_N1" type="internal">
+    <description>Dependency of fuel efficiency coefficient on N1 (and RPM)</description>
+    <tableData>
+      90    0.1221
+      91.2  0.2834
+      92.2  0.5336
+      93.4  0.7188
+      94.1  0.7741
+      95.2  0.8471
+      96.5  0.9001
+     100    1
+    </tableData>
+  </table>
+
+</turboprop_engine>
