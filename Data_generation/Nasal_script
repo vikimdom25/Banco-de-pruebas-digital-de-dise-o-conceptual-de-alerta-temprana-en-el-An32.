@@ -1,0 +1,886 @@
+# ================= DEBUG =================
+debug_enabled = 1; # Asegurate que esto este en 1
+#================== CONVERSIONES ====================
+var RAD2DEG = 57.2957795;
+var D2R = (1/RAD2DEG);
+
+# ================= VARIABLES DE ESTADO Y CONFIG =================
+perdida_activada = 0;
+rumbo_objetivo = nil;
+g_max = 0.0;
+flaps_retraidos = 0;
+t_prev = systime();
+transition_started = 0;
+
+tiempo_inicio_crucero = nil;
+tiempo_en_perdida_activa = 0.0;
+fin_crucero = 0;
+prev_elev_cmd = 0.0;
+roll_deseado = 0.0;     # nivelado por defecto
+aoa_trim = nil;
+
+# --- CRUCERO CONVERGENCIA Y ESTADO DE VIRAJE ---
+CRUISE_CONV_ALT_TOL_PCT = 0.05; # 5% de alt_crucero_objetivo
+CRUISE_CONV_VSPEED_MAX = 0.20; # |vspeed| <= 0.20 fps
+CRUISE_CONV_TIME_REQ = 60.0; # 60 segundos
+cruise_converged_timer = 0.0;
+cruise_submode = "stabilizing"; # Nuevo sub-estado: stabilizing, turning
+turn_duration = 120.0; # Duración deseada del viraje en segundos
+turn_start_time = nil;
+
+# --- EVENTOS Y PERTURBACIONES DURANTE VIRAJE ---
+var llamado1 = 0;
+var llamado2 = 0;
+var blitz = 0; 
+
+# --- CONTROL PI DE SIDESLIP PARA VIRAJE ---
+sideslip_err_sum = 0.0;
+KI_SIDESLIP = 0.08; # Ganancia Integral
+SIDESLIP_INT_LIMIT = 40; # Límite Anti-Windup
+
+# MAQUINA DE ESTADOS
+flight_mode = nil;
+
+# --- Integradores / variables para roll & yaw PID ---
+cruise_alt_err_sum = 0.0;
+cruise_ias_err_sum = 0.0;
+pitch_err_sum = 0.0;
+ias_err_sum = 0.0;
+
+# roll/yaw integrators & prev values
+roll_err_sum = 0.0;
+yaw_err_sum = 0.0;
+roll_prev = nil;
+heading_prev = nil;
+heading_error_prev = 0; 
+
+# --- Filtros ---
+pitch_filt = nil;
+pitch_prev = nil;
+elev_cmd_filt = nil;
+
+# --- DETECCION DE PERDIDA (Legado / Fallback) ---
+stall_timer = nil;
+STALL_G_THRESHOLD = 1.5;        
+STALL_AOA_THRESHOLD = 14.0;     
+STALL_MIN_TIME = 0.5;           
+aoa_prev = nil;
+
+# --- ESTABILIDAD DE CRUCERO ---
+vs_prev = nil;
+vs_stable_time = 0.0;
+VS_STABLE_THRESH = 2.0;
+VS_ABS_THRESH = 5.0;
+VS_STABLE_REQ_TIME = 3.0;
+ALT_TOL = 100.0;
+CRUISE_TRIM = 0.10;
+
+# ================= PARAMETROS PID =================
+# --- FASE 4: Ascenso ---
+KP_PITCH = 0.060;
+KI_PITCH = 0.005;
+KD_PITCH = 0.01;
+KP_IAS2PITCH = 0.0035;
+KI_IAS2PITCH = 0.00015;
+
+# --- FASE 5: Crucero ---
+KP_PITCH_CRUISE = 0.125;
+KI_PITCH_CRUISE = 0.010;
+KD_PITCH_CRUISE = 0.010;
+KP_ALT2PITCH_CRUISE = 0.0250;
+KI_ALT2PITCH_CRUISE = 0.0100;
+
+AOA_TRIM_MIN = -0.3;
+AOA_TRIM_MAX = 0.3;
+pitch_trim_ref = nil;
+PITCH_MAX = 40.0;
+PITCH_MIN = -10.0;
+ELEV_MIN = -0.8;
+ELEV_MAX = 0.8;
+ELEV_SLEW_MAX = 0.15;
+
+# --- ROLL / YAW ---
+KP_ROLL = 0.06;
+KI_ROLL = 0.005; 	 
+KD_ROLL = 0.020;
+
+KP_YAW	= 0.20;
+KI_YAW	= 0.005; 	 
+KD_YAW	= 0.025;
+
+# Limitadores
+ROLL_CMD_MIN = -0.5;
+ROLL_CMD_MAX = 0.5;
+YAW_CMD_MIN	 = -0.8;
+YAW_CMD_MAX	 = 0.8;
+ROLL_INT_LIMIT = 0.5;
+YAW_INT_LIMIT  = 1.0;
+
+# ================= VARIABLES FIJAS y ACOPLADAS O DE RUIDO ==================
+g_threshold = 2.5;
+alt_rotacion = 55;
+inicio_delay = 2 + 3 * rand();
+velocidad_decolaje = 100 + 30 * rand();
+# ================= ALEATORIZACIONES =================
+alt_flaps_fin          = 2008.701071;
+alt_crucero_objetivo   = 7306.506126;
+CLIMB_THR              = 0.95346408;
+CRUISE_THR             = 0.35978129;
+PITCH_LEVEL_FLIGHT     = 15.67960063;
+tiempo_inicio_perturbacion = 58.38842661;
+duracion_gust          = 19.26370685;
+duracion_pulso         = 23.50019371;
+pulso_elevator_mag     = -0.00289819;
+viento_magnitud        = 68.29790733;
+flaps_post_ascenso     = 0.52682907;
+roll_target_turn       = 28.28425255;
+
+# --- ASIMETRÍA ---
+stall_asimetrica = 1;
+sideslip_ref     = 4.06138127;
+
+if (stall_asimetrica == 1) {
+    sideslip_ref = sideslip_ref
+} else {
+    sideslip_ref = 0.0;
+}
+# FIX
+CRUISE_THR = 0.45 + 0.10 * rand(); 
+# ================= FUNCIONES AUXILIARES =================
+
+# ---- Pulse elevator ----
+var pulse_active = 0;
+var pulse_end_time = 0;
+var pulse_value = 0.0;
+var pulse_owner_t = 0.0;
+
+var pulse_elevator = func(elev_objetivo, duracion_pulso) {
+    pulse_value = elev_objetivo;
+    pulse_end_time = systime() + duracion_pulso;
+    pulse_active = 1;
+    pulse_owner_t = systime();
+    if (debug_enabled) print("[PULSE] Elevator pulse scheduled.");
+};
+
+# ---- Throttle ramp ----
+var thr_ramp_active = 0;
+var thr_ramp_start = 0;
+var thr_ramp_duration = 10.0;
+var thr_initial = 0.0;
+
+var iniciar_rampa_perdida = func(duracion) {
+    thr_ramp_duration = duracion;
+    thr_initial = getprop("/controls/engines/engine[0]/throttle");
+    thr_ramp_start = systime();
+    thr_ramp_active = 1;
+    if (debug_enabled) print("[THR_RAMP] iniciada. Dur=", sprintf("%.1f", duracion));
+};
+
+# =================================================================
+#  DETECCION DE PERDIDA ROBUSTA (Validada con An-32 Data)
+# =================================================================
+
+# Cálculo dinámico del umbral de stall basado en Flaps (Fuente: an32.xml)
+# Retorna el ángulo de ataque donde el ala deja de sustentar.
+var get_stall_threshold = func() {
+    var flaps_norm = getprop("/controls/flight/flaps");
+    if (flaps_norm == nil) flaps_norm = 0.0;
+    
+    # Ecuación Lineal Validada:
+    # Flaps 0 (Limpio) -> 16.0 grados
+    # Flaps 1 (Full)   -> 13.0 grados
+    # La interpolación cubre cualquier posición intermedia.
+    var threshold = 16.0 - (3.0 * flaps_norm);
+    
+    return threshold;
+};
+
+var last_alpha_mem = 0.0;
+var last_gload_mem = 1.0;
+var divergencia_start_time = nil; 
+var metadata_stall_state = 0;
+var metadata_stall_start = nil;
+var metadata_stall_duration = 0.0;
+
+var detect_physics_stall = func(curr_alpha, curr_gload) {
+    
+    # 1. Filtro de seguridad:
+    # Bajo 8 grados es físicamente imposible tener stall en este avión.
+    if (curr_alpha < 8.0) {
+        last_alpha_mem = curr_alpha;
+        last_gload_mem = curr_gload;
+        divergencia_start_time = nil; 
+        metadata_stall_state = 0;
+        return 0; 
+    }
+
+    # 2. Calcular Deltas y Límite Actual
+    var d_alpha = curr_alpha - last_alpha_mem;
+    var d_gload = curr_gload - last_gload_mem;
+    var stall_aoa_limit = get_stall_threshold(); 
+    
+    last_alpha_mem = curr_alpha;
+    last_gload_mem = curr_gload;
+
+    # 3. EVALUACIÓN DE CONDICIONES (Lógica Híbrida)
+    var stall_detected = 0;
+    
+    # CASO A: Stall Dinámico (Entrada Violenta)
+    # Útil para detectar el inicio brusco antes de cruzar el umbral estático.
+    # Nariz subiendo rápido (d_alpha > 0) + Pérdida de sustentación (d_gload < 0)
+    if (d_alpha > 0.005 and d_gload < -0.01) {
+        stall_detected = 1;
+    }
+    
+    # CASO B: Stall Estático (Estado Crítico) - EL MÁS ROBUSTO
+    # Si el Alpha supera el límite aerodinámico del ala, ES STALL.
+    # Esto captura Barrenas Planas (Alpha 90), Espirales (Alpha 25) y Oscilaciones (Alpha 15).
+    if (curr_alpha > stall_aoa_limit) {
+        stall_detected = 1;
+    }
+    
+    # CASO C: Stall Acelerado (Carga G Alta)
+    # Si estamos tirando Gs (>1.5) y el Alpha está cerca del límite (margen 2 grados),
+    # es muy peligroso y se considera inicio de pérdida acelerada.
+    if (curr_gload > 1.5 and curr_alpha > (stall_aoa_limit - 2.0)) {
+        stall_detected = 1;
+    }
+
+    # 4. GESTIÓN DEL TIEMPO (Confirmación y Persistencia)
+    if (stall_detected == 1) {
+        if (divergencia_start_time == nil) divergencia_start_time = systime();
+        
+        var duracion = systime() - divergencia_start_time;
+        
+        # Log de diagnóstico (limitado a cada 1s para limpieza)
+        if (debug_enabled and math.mod(systime(), 1.0) < 0.05) {
+             print("[FISICA] STALL ACTIVO. Alpha:", sprintf("%.1f", curr_alpha), 
+                   " Limite:", sprintf("%.1f", stall_aoa_limit), 
+                   " G:", sprintf("%.1f", curr_gload));
+        }
+
+        # Tiempo de confirmación reducido para mayor sensibilidad
+        if (duracion >= 0.25) { 
+            metadata_stall_state = 2; 
+            return 1; 
+        }
+    } else {
+        # Histéresis de seguridad:
+        # Si acabamos de salir de un stall, esperamos 1 segundo antes de borrar el estado
+        # para evitar parpadeos si el Alpha oscila justo en el límite.
+        if (divergencia_start_time != nil and (systime() - divergencia_start_time) < 1.0) {
+             # Mantenemos el estado de alerta un poco más
+             return 0; 
+        }
+        
+        divergencia_start_time = nil;
+        metadata_stall_state = 0;
+    }
+
+    return 0;
+}
+
+# ---- Recovery helper ----
+var recovery_start_time = nil;
+var recovery_in_progress = 0;
+
+var start_recovery = func() {
+    recovery_start_time = systime();
+    recovery_in_progress = 1;
+    perdida_activada = 1;
+    flight_mode = "recovery";
+    tiempo_en_perdida_activa = 0.0;
+    cruise_submode = nil;
+    if (debug_enabled) print("[RECOVERY] Iniciada a t=", sprintf("%.2f", recovery_start_time));
+    iniciar_rampa_perdida(8.0);
+};
+
+
+# ======================= LÓGICA DE VIENTO =======================
+var viento_activo_manual = 0; 
+var v_body_ref = [0, 0, 0]; 
+var viento_end_time = nil; 
+
+var body_to_world_matrix_func = func(v) {
+    var phi   = getprop("/orientation/roll-deg")   * D2R;
+    var theta = getprop("/orientation/pitch-deg")  * D2R;
+    var psi   = getprop("/orientation/heading-deg")* D2R;
+    var cphi   = math.cos(phi); var sphi   = math.sin(phi);
+    var ctheta = math.cos(theta); var stheta = math.sin(theta);
+    var cpsi   = math.cos(psi); var spsi   = math.sin(psi);
+    var R = [
+        [ ctheta*cpsi,  sphi*stheta*cpsi - cphi*spsi,  cphi*stheta*cpsi + sphi*spsi ],
+        [ ctheta*spsi,  sphi*stheta*spsi + cphi*cpsi,  cphi*stheta*spsi - sphi*cpsi ],
+        [ -stheta,      sphi*ctheta,                   cphi*ctheta                  ]
+    ];
+    return [
+        R[0][0]*v[0] + R[0][1]*v[1] + R[0][2]*v[2],
+        R[1][0]*v[0] + R[1][1]*v[1] + R[1][2]*v[2],
+        R[2][0]*v[0] + R[2][1]*v[1] + R[2][2]*v[2]
+    ];
+};
+
+var update_wind = func() {
+    if (viento_activo_manual != 1) return;
+    if (systime() >= viento_end_time) {
+        setprop("/fdm/jsbsim/atmosphere/gust-north-fps", 0.0);
+        setprop("/fdm/jsbsim/atmosphere/gust-east-fps",  0.0);
+        setprop("/fdm/jsbsim/atmosphere/gust-down-fps",  0.0);
+        viento_activo_manual = 0;
+        v_body_ref = [0,0,0];
+        viento_end_time = nil;
+        if (debug_enabled) print("[WIND] Gust finalizado.");
+        return;
+    }
+    var v_world = body_to_world_matrix_func(v_body_ref);
+    setprop("/fdm/jsbsim/atmosphere/gust-north-fps", v_world[0]);
+    setprop("/fdm/jsbsim/atmosphere/gust-east-fps",  v_world[1]);
+    setprop("/fdm/jsbsim/atmosphere/gust-down-fps",  v_world[2]);
+};
+
+var aplicarCorrienteViento = func(direccion, magnitud, duracion) {
+    if (viento_activo_manual == 1) { print("[APLICAR VIENTO] Viento ya activo."); return; }
+    viento_activo_manual = 1;
+    viento_end_time = systime() + duracion;
+    var v = [0,0,0]; 
+    if (direccion == "adelante") v = [-magnitud, 0, 0];
+    if (direccion == "atras")  v = [ magnitud, 0, 0];
+    if (direccion == "derecha")  v = [0, -magnitud, 0];
+    if (direccion == "izquierda") v = [0, magnitud, 0];
+    if (direccion == "arriba") v = [0, 0, -magnitud];
+    if (direccion == "abajo")  v = [0, 0, magnitud];
+    v_body_ref = v;
+    if (debug_enabled) print("[APLICAR VIENTO] Activado: Dir=", direccion, " Mag=", sprintf("%.1f", magnitud), "s Dur=", sprintf("%.1f", duracion), "s");
+};
+
+
+# ================= LOGICA DE VUELO =================
+var flight_sequence = func {
+    var airspeed = getprop("/velocities/airspeed-kt");
+    var altitude = getprop("/position/altitude-ft");
+    var heading = getprop("/orientation/heading-deg");
+    var aoa = getprop("/orientation/alpha-deg");
+    var vspeed = getprop("/velocities/vertical-speed-fps");
+    var roll = getprop("/orientation/roll-deg");
+    var pitch_deg = getprop("/orientation/pitch-deg");
+    var gload = getprop("/accelerations/pilot-g");
+    var sideslip = getprop("/orientation/side-slip-deg"); 
+    var q_rate =  getprop("/fdm/jsbsim/velocities/q-rad_sec") * RAD2DEG; 
+
+    if (gload > g_max) g_max = gload;
+
+    var throttle_path_0 = "/controls/engines/engine[0]/throttle";
+    var throttle_path_1 = "/controls/engines/engine[1]/throttle";
+    var elevator_path = "/controls/flight/elevator";
+    var rudder_path = "/controls/flight/rudder";
+    var elevator_trim_path = "/controls/flight/elevator-trim";
+    var aileron_path = "/controls/flight/aileron";
+    var gear_path = "/controls/gear/gear-down";
+    var flaps_path = "/controls/flight/flaps";
+
+    # --- Actualizar viento y estabilidad ---
+    update_wind();
+    var dt = systime() - t_prev;
+    if (dt <= 0) dt = 0.05;
+
+    if (vs_prev == nil) vs_prev = vspeed;
+    if (roll_prev == nil) roll_prev = roll;
+    if (heading_prev == nil) heading_prev = heading;
+    if (aoa_prev == nil) aoa_prev = aoa;
+
+    var vs_delta = math.abs(vspeed - vs_prev);
+    if (math.abs(vspeed) <= VS_ABS_THRESH and vs_delta <= VS_STABLE_THRESH) {
+        vs_stable_time += dt;
+    } else {
+        vs_stable_time = 0.0;
+    }
+    vs_prev = vspeed;
+
+    # --- Rampa throttle ---
+    if (thr_ramp_active == 1) {
+        var t = systime() - thr_ramp_start;
+        if (t < thr_ramp_duration) {
+            var k = 1 - (t / thr_ramp_duration);
+            var thr_cmd = thr_initial * k;
+            setprop(throttle_path_0, thr_cmd);
+            setprop(throttle_path_1, thr_cmd);
+        } else {
+            thr_ramp_active = 0;
+            setprop(throttle_path_0, 0.0);
+            setprop(throttle_path_1, 0.0);
+        }
+    }
+
+    # --- RECOVERY ---
+    if (flight_mode == "recovery") {
+        
+        # Leemos los sensores
+        var current_alpha = getprop("/orientation/alpha-deg");
+        var current_pitch = getprop("/orientation/pitch-deg");
+        var current_airspeed = getprop("/velocities/airspeed-kt");
+        var current_roll = getprop("/orientation/roll-deg"); # Leemos Roll actual explícitamente
+        
+        var elev_cmd = 0.0;
+        
+        # ==========================================================
+        # FASE 1: STALL PROFUNDO (Alpha > 12) -> ROMPER LA PÉRDIDA
+        # ==========================================================
+        if (current_alpha > 12.0) {
+            elev_cmd = 0.3; # Picar nariz (Push)
+            
+            # Cortar potencia
+            setprop(throttle_path_0, 0.0);
+            setprop(throttle_path_1, 0.0);
+            
+            # ALERONES Y TIMÓN NEUTROS (Crucial para evitar barrena)
+            setprop(aileron_path, 0.0);
+            setprop(rudder_path, 0.0);
+            
+            # Reseteamos integradores para que no afecten en la Fase 2
+            roll_err_sum = 0.0; 
+
+        } 
+        # ==========================================================
+        # FASE 2: PULL-OUT (Alpha < 12) -> RECUPERAR TRAYECTORIA
+        # ==========================================================
+        else {
+             # Restaurar potencia gradualmente
+             if (getprop(throttle_path_0) < 0.6) {
+                 setprop(throttle_path_0, 0.6);
+                 setprop(throttle_path_1, 0.6);
+             }
+             
+             # Gestión de Elevador (Suavizar la salida del picado)
+             if (current_pitch < -10.0) {
+                 elev_cmd = -0.20; # Jalar suave
+             } else {
+                 elev_cmd = -0.05; # Mantenimiento
+             }
+
+            # ------------------------------------------------------------
+            # AQUI ESTA EL CAMBIO: CONTROL PROPORCIONAL DE ALABEO
+            # ------------------------------------------------------------
+            # En lugar del PID complejo, usamos una reacción directa.
+            # Objetivo: Roll = 0.
+            # Ecuación: Comando = -Gain * Roll_Actual
+            
+            var kp_recovery = 0.03; # Ganancia suficiente para nivelar, suave para no oscilar
+            var aileron_recovery = -kp_recovery * current_roll;
+            
+            # Limitamos el comando (Clamp) entre -0.6 y 0.6
+            # No queremos alerón full deflección a alta velocidad (stress estructural)
+            aileron_recovery = math.clamp(aileron_recovery, -0.6, 0.6);
+            
+            # Aplicamos
+            setprop(aileron_path, aileron_recovery);
+            
+            # Mantenemos timón quieto (o podrías poner un amortiguador de guiñada aquí)
+            setprop(rudder_path, 0.0);
+            
+            # Actualizamos variable 'prev' por si vuelves a usarla luego, 
+            # aunque en este método P no se usa derivada.
+            roll_prev = current_roll; 
+        }
+        
+        # Aplicar el comando calculado al elevador (Común para ambas fases)
+        setprop(elevator_path, math.clamp(elev_cmd, ELEV_MIN, ELEV_MAX));
+        
+        # SALIDA DEL MODO RECOVERY (Criterio de Éxito)
+        if (current_airspeed > 110 and current_alpha < 10 and current_pitch > -5) {
+            if (debug_enabled) print("[RECOVERY] Recuperación exitosa. Volviendo ascender.");
+            
+            # Restaurar estado a ascenso
+            flight_mode = "climb";
+            roll_deseado = 0.0;
+            perdida_activada = 0;
+            recovery_in_progress = 0;
+            llamado1 = 0; 
+            llamado2 = 0; 
+            
+            # Limpiar metadatos
+            metadata_stall_state = 0;
+            metadata_stall_duration = 0.0;
+            metadata_stall_start = nil;
+
+            CRUISE_THR = 0.60 + 0.20 * rand();
+            
+            # Restaurar potencia de crucero
+            setprop(throttle_path_0, CRUISE_THR);
+            setprop(throttle_path_1, CRUISE_THR);
+            
+            # Importante: Resetear integradores del PID de crucero para empezar limpios
+            roll_err_sum = 0.0;
+            pitch_err_sum = 0.0;
+        }
+
+        t_prev = systime();
+        settimer(flight_sequence, 0.02);
+        return;
+    }
+
+    # --- OPERACION NORMAL (Climb/Cruise) ---
+    if (!perdida_activada) {
+
+        # ... (Logica de Rumbo y Yaw igual que original) ...
+        if (rumbo_objetivo == nil and altitude >= alt_rotacion and altitude < alt_flaps_fin) {
+            var offset = -45 + 90 * rand();
+            rumbo_objetivo = heading + offset;
+            if (rumbo_objetivo >= 360) rumbo_objetivo -= 360;
+            if (rumbo_objetivo < 0) rumbo_objetivo += 360;
+
+            
+        }
+        var rumbo_ref = (altitude < alt_rotacion or rumbo_objetivo == nil) ? 317 : rumbo_objetivo;
+        var heading_error = heading - rumbo_ref;
+        if (heading_error > 180) heading_error -= 360;
+        if (heading_error < -180) heading_error += 360;
+
+        # y NO estamos en el modo de prueba de crucero
+        if (altitude >= alt_rotacion and (flight_mode != "cruise" or cruise_submode != "turning")) {
+            # Convertimos error de rumbo a angulo de alabeo (Gain 1.0)
+            # Limitamos a 25 grados para que sea suave
+            roll_deseado = math.clamp(heading_error * -0.20, -15.0, 15.0);
+        } else {
+             # En tierra o crucero-turning, mantenemos logica original
+             if (flight_mode != "cruise") roll_deseado = 0.0;
+        }
+
+        # YAW PID
+        var rudder_cmd = 0.0;
+        if (flight_mode == "cruise" and cruise_submode == "turning") {
+
+            var sideslip_err = sideslip - sideslip_ref;
+            
+
+            var tentative_integrator_ss = sideslip_err_sum + sideslip_err * dt;
+            var rudder_raw =(KP_YAW * 0.60 * sideslip_err); 
+            var yaw_rate = getprop("/orientation/yaw-rate-degps");
+            var D_term = -1* (KD_YAW * 0.80 * 0.40 * yaw_rate);
+
+            var rudder_cmd_with_tent = rudder_raw + (KI_SIDESLIP * tentative_integrator_ss) + D_term;
+            var rudder_cmd_final = math.clamp(rudder_cmd_with_tent, YAW_CMD_MIN, YAW_CMD_MAX);
+            if (rudder_cmd_with_tent == rudder_cmd_final) {
+                sideslip_err_sum = math.clamp(tentative_integrator_ss, -SIDESLIP_INT_LIMIT, SIDESLIP_INT_LIMIT);
+            }
+            rudder_cmd = rudder_cmd_final;
+            setprop(rudder_path, rudder_cmd);
+            yaw_err_sum = 0.0;
+
+        } else {
+            var deadband = 0.02;     
+            var h_err = heading_error;
+            if (abs(h_err) < deadband) h_err = 0;
+            var yaw_deriv = (h_err - heading_error_prev) / dt;
+            heading_error_prev = h_err;
+            var rudder_raw = KP_YAW * (-h_err);
+            var tentative_integrator = yaw_err_sum + (-h_err) * dt;
+            var out_with_tent = rudder_raw + (KI_YAW * tentative_integrator) - (KD_YAW * yaw_deriv);
+            var out_clamped = math.clamp(out_with_tent, YAW_CMD_MIN, YAW_CMD_MAX);
+            if (out_with_tent == out_clamped) yaw_err_sum = math.clamp(tentative_integrator, -YAW_INT_LIMIT, YAW_INT_LIMIT);
+            rudder_cmd = rudder_raw + (KI_YAW * yaw_err_sum) - (KD_YAW * yaw_deriv);
+            rudder_cmd = math.clamp(rudder_cmd, YAW_CMD_MIN, YAW_CMD_MAX);
+            
+            # Rate limiter
+            var max_rate = 0.4;     
+            var max_delta = max_rate * dt;
+            var rudder_prev = getprop(rudder_path);
+            if (rudder_cmd > rudder_prev + max_delta) rudder_cmd = rudder_prev + max_delta;
+            if (rudder_cmd < rudder_prev - max_delta) rudder_cmd = rudder_prev - max_delta;
+
+            # === LA ÚNICA LÍNEA NUEVA (EL "BOZAL") ===
+            # Si estamos en el aire y en modo ascenso/nivelado (no en tu test de viraje)
+            # Limitamos el timón al 20% (+-0.2) para evitar el Dutch Roll por sobre-mando.
+            # El viraje lo harán los alerones (Paso 1).
+            if (altitude > alt_rotacion and flight_mode != "cruise") {
+                rudder_cmd = math.clamp(rudder_cmd, -0.25, 0.25);
+            }
+            # ==========================================
+
+            setprop(rudder_path, rudder_cmd);
+            sideslip_err_sum = 0.0;
+
+            # if (debug_enabled) print("rumbo exigido: ", sprintf("%.1f", rumbo_ref), "Rumbo actual: ",sprintf("%.1f", heading) );
+        }
+
+        # ROLL PID
+        if(llamado2 == 0){
+            var roll_error = roll - roll_deseado; 
+            var roll_deriv = (roll - roll_prev) / dt;
+            var deadband = 0.025;         
+            if (abs(roll_error) < deadband) roll_error = 0;
+            var aileron_raw = ( - KP_ROLL * roll_error ); 
+            var tentative_roll_int = roll_err_sum + (-roll_error) * dt;
+            var out_with_tent_roll = aileron_raw + (KI_ROLL * tentative_roll_int) - (KD_ROLL * roll_deriv);
+            var out_clamped_roll = math.clamp(out_with_tent_roll, ROLL_CMD_MIN, ROLL_CMD_MAX);
+            if (out_with_tent_roll == out_clamped_roll) {
+                roll_err_sum = math.clamp(tentative_roll_int, -ROLL_INT_LIMIT, ROLL_INT_LIMIT);
+            }
+            var aileron_cmd = aileron_raw + (KI_ROLL * roll_err_sum) - (KD_ROLL * roll_deriv);
+            aileron_cmd = math.clamp(aileron_cmd, ROLL_CMD_MIN, ROLL_CMD_MAX);
+            setprop(aileron_path, aileron_cmd);
+            roll_prev = roll;
+        }
+        else {
+
+            #OPCIÓN A: Alerones neutros (Dejar que el timón y el viento hagan el trabajo)
+            aileron_cmd = 0.0; 
+            
+
+            # OPCIÓN B (Más agresiva): Forzar alerones A FAVOR del giro para asegurar la barrena
+            # Si el avión está virando a la izquierda (roll negativo), metemos alerón izquierdo.
+            # Descomenta la siguiente linea si la Opcion A no es suficiente:
+            # aileron_cmd = (roll < 0) ? -1.0 : 1.0; 
+
+            # Aseguramos que el integrador no acumule error mientras el PID está apagado
+            roll_err_sum = 0.0; 
+            setprop(aileron_path, aileron_cmd);
+
+            if (debug_enabled) {
+                # Solo un print ocasional para confirmar
+                if (math.mod(systime(), 1.0) < 0.05) print("[PID ROLL] DESACTIVADO por evento de viento.");
+            }
+        }
+        # --- FASES 1-3 ---
+        if(flight_mode == nil){
+            if (airspeed < velocidad_decolaje) {
+                setprop(throttle_path_0, 1.0); setprop(throttle_path_1, 1.0);
+                setprop(elevator_path, 0.0); setprop(elevator_trim_path, -0.1);
+                setprop(flaps_path, 1.0);
+            }
+            if (airspeed >= velocidad_decolaje and altitude < alt_rotacion) {
+                setprop(elevator_path, -0.42); setprop(elevator_trim_path, -0.20);
+                setprop(flaps_path, 1.0);
+            }
+            if (altitude >= alt_rotacion and altitude < alt_flaps_fin) {
+                setprop(elevator_path, -0.10); setprop(elevator_trim_path, -0.30);
+                setprop(flaps_path, 1.0); setprop(gear_path, 0);
+                setprop(throttle_path_0, CLIMB_THR); setprop(throttle_path_1, CLIMB_THR);
+            }
+        }
+        # --- Transicion a Climb ---
+        if ((altitude >= alt_flaps_fin or transition_started == 1) and flaps_retraidos == 0) {
+            transition_started = 1;
+            var f = getprop(flaps_path);
+            if (f > flaps_post_ascenso) {
+                setprop(flaps_path, math.max(flaps_post_ascenso, f - 0.01));
+            } else {
+                flaps_retraidos = 1;
+                if (flight_mode == nil) flight_mode = "climb";
+            }
+        }
+
+        # --- FASE 4: CLIMB ---
+        if (flight_mode == "climb") {
+            var pitch_ref_climb = PITCH_LEVEL_FLIGHT; 
+            if (pitch_trim_ref == nil) {
+                pitch_trim_ref = PITCH_LEVEL_FLIGHT;
+                aoa_trim = aoa; pitch_filt = pitch_deg; pitch_prev = pitch_deg; pitch_err_sum = 0.0;
+            }
+            if (pitch_filt == nil) pitch_filt = pitch_deg;
+            pitch_filt = 0.90 * pitch_filt + 0.10 * pitch_deg; 
+            var pitch_err = pitch_ref_climb - pitch_deg;
+            pitch_err_sum += pitch_err * dt;
+            pitch_err_sum = math.clamp(pitch_err_sum, -50.0, 50.0);
+            if (pitch_prev == nil) pitch_prev = pitch_filt;
+            var pitch_deriv = (pitch_filt - pitch_prev) / dt;
+            pitch_prev = pitch_filt;
+            var elev_cmd_base = (-1)*((KP_PITCH * pitch_err) + (KI_PITCH * pitch_err_sum) - (KD_PITCH * pitch_deriv));
+            var elev_cmd_raw = elev_cmd_base;
+            var delta = elev_cmd_raw - prev_elev_cmd;
+            delta = math.clamp(delta, -ELEV_SLEW_MAX, ELEV_SLEW_MAX);
+            var elev_cmd = prev_elev_cmd + delta;
+            
+            if (pulse_active == 1) {
+                if (systime() < pulse_end_time) elev_cmd = pulse_value; else pulse_active = 0;
+            }
+            setprop(elevator_path, math.clamp(elev_cmd, ELEV_MIN, ELEV_MAX));
+            setprop(throttle_path_0, CLIMB_THR); setprop(throttle_path_1, CLIMB_THR);
+
+            var aoa_trim_ref_calc = math.clamp(-1 * (pitch_ref_climb - pitch_deg) * 0.1, AOA_TRIM_MIN, AOA_TRIM_MAX);
+            aoa_trim = 0.990 * aoa_trim + 0.010 * aoa_trim_ref_calc;
+            var current_trim = getprop(elevator_trim_path);
+            setprop(elevator_trim_path, math.clamp(current_trim + (aoa_trim - current_trim) * 0.01, -0.2, 0.2));
+            prev_elev_cmd = elev_cmd;
+
+            if (altitude >= alt_crucero_objetivo - 200) {
+                flight_mode = "cruise"; cruise_submode = "stabilizing";
+                tiempo_inicio_crucero = nil;
+            }
+
+        } elsif (flight_mode == "cruise") {
+            # --- FASE 5: CRUCERO ---
+            if (tiempo_inicio_crucero == nil) {
+                tiempo_inicio_crucero = systime();
+                pitch_err_sum = 0.0; cruise_alt_err_sum = 0.0;
+                pitch_filt = pitch_deg; pitch_prev = pitch_deg;
+                prev_elev_cmd = getprop(elevator_path);
+                setprop(elevator_trim_path, CRUISE_TRIM); setprop(flaps_path, flaps_post_ascenso);
+            }
+
+            var tiempo_en_crucero = systime() - tiempo_inicio_crucero;
+            var blend_duration = 5.0;
+            if (tiempo_en_crucero < blend_duration) {
+                var k_thr = tiempo_en_crucero / blend_duration;
+                var throttle_cmd = (1.0 - k_thr) * CLIMB_THR + k_thr * CRUISE_THR;
+                setprop(throttle_path_0, throttle_cmd); setprop(throttle_path_1, throttle_cmd);
+            } else {
+                if (!thr_ramp_active) {
+                    setprop(throttle_path_0, CRUISE_THR); setprop(throttle_path_1, CRUISE_THR);
+                }
+            }
+
+            
+
+            PITCH_MAX = 40.0; PITCH_MIN = -20.0; ELEV_MIN = -0.9; ELEV_MAX = 0.9;
+            var alt_err = altitude - alt_crucero_objetivo;
+            cruise_alt_err_sum += alt_err * dt;
+            cruise_alt_err_sum = math.clamp(cruise_alt_err_sum, -500.0, 500.0);
+            var pitch_ref_cruise = -(KP_ALT2PITCH_CRUISE * alt_err) - (KI_ALT2PITCH_CRUISE * cruise_alt_err_sum);
+            pitch_ref_cruise = math.clamp(pitch_ref_cruise, PITCH_MIN, PITCH_MAX);
+
+            if (pitch_filt == nil) pitch_filt = pitch_deg;
+            pitch_filt = 0.80 * pitch_filt + 0.20 * pitch_deg;
+            var pitch_err_cr = pitch_ref_cruise - pitch_filt;
+            pitch_err_sum += pitch_err_cr * dt;
+            pitch_err_sum = math.clamp(pitch_err_sum, -50.0, 50.0);
+            var pitch_deriv_cr = (pitch_filt - pitch_prev) / dt;
+            pitch_deriv_cr = math.clamp(pitch_deriv_cr, -5.0, 5.0);
+            pitch_prev = pitch_filt;
+
+            var elev_cmd_raw_cr = -(KP_PITCH_CRUISE * pitch_err_cr) -(KI_PITCH_CRUISE * pitch_err_sum) + (KD_PITCH_CRUISE * pitch_deriv_cr);
+            var delta_cr = elev_cmd_raw_cr - prev_elev_cmd;
+            delta_cr = math.clamp(delta_cr, -ELEV_SLEW_MAX, ELEV_SLEW_MAX);
+            var elev_cmd = prev_elev_cmd + delta_cr;
+            
+            if (pulse_active == 1) {
+                if (systime() < pulse_end_time) elev_cmd = pulse_value; else pulse_active = 0;
+            }
+            setprop(elevator_path, math.clamp(elev_cmd, ELEV_MIN, ELEV_MAX));
+
+            var aoa_trim_ref_calc = math.clamp(1 * (alt_err * 0.0020), AOA_TRIM_MIN, AOA_TRIM_MAX);
+            aoa_trim = 0.995 * aoa_trim + 0.005 * aoa_trim_ref_calc;
+            var current_trim = getprop(elevator_trim_path);
+            setprop(elevator_trim_path, math.clamp(current_trim + (aoa_trim - current_trim) * 0.01, -0.5, 0.5));
+            prev_elev_cmd = elev_cmd;
+
+            # --- SUB-MODOS CRUCERO ---
+            if (cruise_submode == "stabilizing") {
+                roll_deseado = 0.0;
+                var alt_err_abs = math.abs(alt_err);
+                var alt_tol_abs = alt_crucero_objetivo * CRUISE_CONV_ALT_TOL_PCT;
+                var is_stable_alt = (alt_err_abs <= alt_tol_abs);
+                var is_stable_vs = (math.abs(vspeed) <= CRUISE_CONV_VSPEED_MAX);
+
+                if (is_stable_alt and is_stable_vs) {
+                    cruise_converged_timer += dt;
+                    # [DEBUG RESTAURADO] Log de convergencia en stabilizing
+                    if (debug_enabled) print("[CRUCERO STABILIZING] Convergiendo... T: ", sprintf("%.1f", cruise_converged_timer), "s");
+                } else {
+                    cruise_converged_timer = 0.0;
+                }
+                
+                # [DEBUG RESTAURADO] Estado general de fase
+                if (debug_enabled) {
+                    print("[FASE 5/STAB] Alt=", sprintf("%.1f", altitude), " | AltErr=", sprintf("%.1f", alt_err),
+                          " | PitchRef=", sprintf("%.2f", pitch_ref_cruise), " | VSp=", sprintf("%.2f", vspeed));
+                }
+
+                if (cruise_converged_timer >= CRUISE_CONV_TIME_REQ) {
+                    cruise_submode = "turning";
+                    turn_start_time = systime();
+                    roll_deseado = (rand() > 0.5 ? roll_target_turn : -roll_target_turn); 
+                    cruise_converged_timer = 0.0;
+                    var ss_mag = math.abs(sideslip_ref);
+                    sideslip_ref = (roll_deseado > 0 ? ss_mag : -ss_mag);
+                    if (debug_enabled) print("[TRANSICION] VIRAJAE START. Roll des: ", sprintf("%.1f", roll_deseado));
+                }
+
+            } elsif (cruise_submode == "turning") {
+                
+                CRUISE_THR = 0.35978129;
+
+                YAW_CMD_MIN	 = -1.0; YAW_CMD_MAX = 1.0;
+                var turn_time = systime() - turn_start_time;
+
+                if ((turn_time >= 0.05) and (llamado1 == 0)){
+                    #iniciar_rampa_perdida(turn_duration);
+                    llamado1 = 1; 
+                }
+                if ((turn_time >= tiempo_inicio_perturbacion) and (llamado2 == 0)) {
+                    aplicarCorrienteViento("abajo", viento_magnitud, duracion_gust);
+                    pulse_elevator(pulso_elevator_mag, duracion_pulso);
+                    llamado2 = 1;  
+                }
+                if (turn_time >= turn_duration) {
+                    roll_deseado = 0.0; cruise_submode = "stabilizing";
+                    llamado1 = 0; llamado2 = 0; 
+                    if (debug_enabled) print("[TRANSICION] Viraje completado.");
+                }
+                
+                # [DEBUG RESTAURADO] Logs de estado del viraje
+                if (debug_enabled) {
+                    print("[CRUCERO TURNING] Alt=", sprintf("%.1f", altitude), " | RollDes=", sprintf("%.1f", roll_deseado),
+                          " | Roll=", sprintf("%.1f", roll), " | Sideslip=", sprintf("%.2f", sideslip),
+                          " | Time=", sprintf("%.1f", turn_time), "LLamado2=",sprintf("%.1f", llamado2));
+                }
+
+                var stallrudder = getprop(rudder_path);
+
+                # ============================================================
+                # NUEVA DETECCION DE PERDIDA (FISICA + TIEMPO)
+                # ============================================================
+                
+                # Nota: Los logs de "Physics Debug" estan DENTRO de esta función ahora
+                var is_physical_stall = detect_physics_stall(aoa, gload);
+
+                if (is_physical_stall == 1) {
+                    if (!perdida_activada) {
+                        perdida_activada = 1;
+                        setprop(rudder_path,stallrudder);
+                        if (debug_enabled) print("[FISICA] STALL CONFIRMADO. Iniciando acciones.");
+                        iniciar_rampa_perdida(8.0);
+                        if (metadata_stall_start == nil) metadata_stall_start = systime();
+                    }
+                    if (metadata_stall_start != nil) {
+                        metadata_stall_duration = systime() - metadata_stall_start;
+                    }
+                }
+
+                # Recovery forzado tras 40s
+                if (perdida_activada and metadata_stall_duration >= 40.0 and recovery_in_progress == 0) {
+                    if (debug_enabled) print("[EVENT] Stall persistente >40s. Forzando recovery.");
+                    start_recovery();
+                }
+            }
+        }
+        t_prev = systime();
+
+    } else {
+        # =============================================================
+        # ZONA DE PÉRDIDA ACTIVA (Lógica de recuperación forzada)
+        # =============================================================
+        var d_aoa = (aoa - aoa_prev) / dt;
+        aoa_prev = aoa;
+
+        # Acumulador manual para garantizar los 40 segundos si el sensor fluctúa
+        tiempo_en_perdida_activa += dt;
+
+        if (tiempo_en_perdida_activa >= 40.0 and recovery_in_progress == 0) {
+            if (debug_enabled) print("[EVENT] Límite de 40s alcanzado. Forzando RECOVERY.");
+            llamado1 = 0; 
+            llamado2 = 0; 
+            start_recovery();
+        }
+
+        # [DEBUG RESTAURADO] Para ver el progreso del tiempo
+        if (debug_enabled) {
+            print("[PERDIDA ACTIVA] T_Acumulado=", sprintf("%.1f", tiempo_en_perdida_activa), 
+                  " / 40.0s | Alpha:", sprintf("%.1f", aoa));
+        }
+    }
+
+    t_prev = systime();
+    settimer(flight_sequence, 0.02);
+};
+
+settimer(flight_sequence, inicio_delay);
