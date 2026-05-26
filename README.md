@@ -5,7 +5,7 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-Deep%20Learning-EE4C2C.svg)](https://pytorch.org/)
 [![PyQt6](https://img.shields.io/badge/PyQt6-GUI-41CD52.svg)](https://riverbankcomputing.com/software/pyqt/)
 
-Repositorio oficial del trabajo de grado de Ingeniería Aeronáutica (Centro de Educación Militar - Escuela de Aviación del Ejército, Colombia). Este proyecto implementa un **Banco de Pruebas Unificado** (Testbench) para evaluar un modelo secuencial de aprendizaje automático (`AntonovTransformerModelV3`) diseñado para predecir dinámicas de pérdida acelerada.
+Repositorio oficial del trabajo de grado de Ingeniería Aeronáutica (Centro de Educación Militar - Escuela de Aviación del Ejército, Colombia). Este proyecto implementa un **Banco de Pruebas Unificado** (Testbench) para evaluar un modelo secuencial de aprendizaje automático (`AntonovTransformerModelV8`) diseñado para predecir dinámicas de pérdida acelerada.
 
 ## 📌 Descripción General
 
