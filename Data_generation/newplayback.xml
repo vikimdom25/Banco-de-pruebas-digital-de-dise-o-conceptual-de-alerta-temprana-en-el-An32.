@@ -1,0 +1,478 @@
+<?xml version="1.0"?>
+
+<PropertyList>
+ <comment>
+  <![CDATA[
+    Usage:
+  
+    Recording: fgfs --generic=file,out,20,flight.out,playback
+    Playback:  fgfs --generic=file,in,20,flight.out,playback --fdm=null
+  ]]>
+ </comment>
+
+ <generic>
+
+  <output>
+   <line_separator>newline</line_separator>
+   <var_separator>,</var_separator>
+   <prepend_header>true</prepend_header>
+
+   <!-- Flight Controls -->
+   <chunk>
+    <name>aileron</name>
+    <type>float</type>
+    <format>%f</format>
+    <node>/controls/flight/aileron[0]</node>
+   </chunk>
+
+   <chunk>
+    <name>aileron-trim</name>
+    <type>float</type>
+    <format>%f</format>
+    <node>/controls/flight/aileron-trim</node>
+   </chunk>
+ 
+   <chunk>
+    <name>elevator</name>
+    <type>float</type>
+    <format>%f</format>
+    <node>/controls/flight/elevator</node>
+   </chunk>
+ 
+   <chunk>
+    <name>elevator-trim</name>
+    <type>float</type>
+    <format>%f</format>
+    <node>/controls/flight/elevator-trim</node>
+   </chunk>
+ 
+   <chunk>
+    <name>rudder</name>
+    <type>float</type>
+    <format>%f</format>
+    <node>/controls/flight/rudder</node>
+   </chunk>
+ 
+   <chunk>
+    <name>rudder-trim</name>
+    <type>float</type>
+    <format>%f</format>
+    <node>/controls/flight/rudder-trim</node>
+   </chunk>
+ 
+   <chunk>
+    <name>flaps</name>
+    <type>float</type>
+    <format>%f</format>
+    <node>/controls/flight/flaps</node>
+   </chunk>
+ 
+   <chunk>
+    <name>slats</name>
+    <type>float</type>
+    <format>%f</format>
+    <node>/controls/flight/slats</node>
+   </chunk>
+ 
+   <chunk>
+    <name>speedbrake</name>
+    <type>float</type>
+    <format>%f</format>
+    <node>/controls/flight/speedbrake</node>
+   </chunk>
+ 
+   <!-- Engines -->
+   <chunk>
+    <name>throttle</name>
+    <type>float</type>
+    <format>%f</format>
+    <node>/controls/engines/engine[0]/throttle</node>
+   </chunk>
+   <chunk>
+    <name>throttle</name>
+    <type>float</type>
+    <format>%f</format>
+    <node>/controls/engines/engine[1]/throttle</node>
+   </chunk>
+
+   <chunk>
+    <name>propeller-pitch</name>
+    <type>float</type>
+    <format>%f</format>
+    <node>/controls/engines/engine[0]/propeller-pitch</node>
+   </chunk>
+   <chunk>
+    <name>propeller-pitch</name>
+    <type>float</type>
+    <format>%f</format>
+    <node>/controls/engines/engine[1]/propeller-pitch</node>
+   </chunk>
+
+   <!-- Position -->
+   <chunk>
+    <name>latitude-deg</name>
+    <type>double</type>
+    <format>%.10lf</format>
+    <node>/position/latitude-deg</node>
+   </chunk>
+
+   <chunk>
+    <name>longitude-deg</name>
+    <type>double</type>
+    <format>%.10lf</format>
+    <node>/position/longitude-deg</node>
+   </chunk>
+
+   <chunk>
+    <name>altitude-ft</name>
+    <type>float</type>
+    <format>%f</format>
+    <node>/position/altitude-ft</node>
+   </chunk>
+
+   <!-- Orientation -->
+   <chunk>
+    <name>roll-deg</name>
+    <type>float</type>
+    <format>%f</format>
+    <node>/orientation/roll-deg</node>
+   </chunk>
+
+   <chunk>
+    <name>pitch-deg</name>
+    <type>float</type>
+    <format>%f</format>
+    <node>/orientation/pitch-deg</node>
+   </chunk>
+
+   <chunk>
+    <name>heading-deg</name>
+    <type>float</type>
+    <format>%f</format>
+    <node>/orientation/heading-deg</node>
+   </chunk>
+
+   <chunk>
+    <name>alpha-deg</name>
+    <type>float</type>
+    <format>%f</format>
+    <node>/orientation/alpha-deg</node>
+   </chunk>
+
+   <chunk>
+    <name>side-slip-deg</name>
+    <type>float</type>
+    <format>%f</format>
+    <node>/orientation/side-slip-deg</node>
+   </chunk>
+
+   <!-- Velocities -->
+   <chunk>
+     <name>airspeed-kt</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/velocities/airspeed-kt</node>
+   </chunk>
+
+   <chunk>
+     <name>glideslope</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/velocities/glideslope</node>
+   </chunk>
+
+   <chunk>
+     <name>mach</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/velocities/mach</node>
+   </chunk>
+
+   <chunk>
+     <name>speed-down-fps</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/velocities/speed-down-fps</node>
+   </chunk>
+
+   <chunk>
+     <name>speed-east-fps</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/velocities/speed-east-fps</node>
+   </chunk>
+
+   <chunk>
+     <name>speed-north-fps</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/velocities/speed-north-fps</node>
+   </chunk>
+
+   <chunk>
+     <name>uBody-fps</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/velocities/uBody-fps</node>
+   </chunk>
+
+   <chunk>
+     <name>vBody-fps</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/velocities/vBody-fps</node>
+   </chunk>
+
+   <chunk>
+     <name>wBody-fps</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/velocities/wBody-fps</node>
+   </chunk>
+
+   <chunk>
+     <name>vertical-speed-fps</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/velocities/vertical-speed-fps</node>
+   </chunk>
+
+   <!-- Angular Velocities -->
+   <chunk>
+     <name>p_rad_sec</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/fdm/jsbsim/velocities/p-rad_sec</node>
+   </chunk>
+
+   <chunk>
+     <name>q_rad_sec</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/fdm/jsbsim/velocities/q-rad_sec</node>
+   </chunk>
+
+   <chunk>
+     <name>r_rad_sec</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/fdm/jsbsim/velocities/r-rad_sec</node>
+   </chunk>
+
+   <chunk>
+     <name>phidot_rad_sec</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/fdm/jsbsim/velocities/phidot-rad_sec</node>
+   </chunk>
+
+   <chunk>
+     <name>psidot_rad_sec</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/fdm/jsbsim/velocities/psidot-rad_sec</node>
+   </chunk>
+
+   <chunk>
+     <name>thetadot_rad_sec</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/fdm/jsbsim/velocities/thetadot-rad_sec</node>
+   </chunk>
+
+   
+   <!-- Accelerations -->
+   <chunk>
+     <name>nlf</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/accelerations/nlf</node>
+   </chunk>
+   <chunk>
+     <name>pilot-x-accel-fps_sec</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/accelerations/pilot/x-accel-fps_sec</node>
+   </chunk>
+   <chunk>
+     <name>pilot-y-accel-fps_sec</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/accelerations/pilot/y-accel-fps_sec</node>
+   </chunk>
+   <chunk>
+     <name>pilot-z-accel-fps_sec</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/accelerations/pilot/z-accel-fps_sec</node>
+   </chunk>
+
+   <chunk>
+     <name>udot_ft_sec2</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/fdm/jsbsim/accelerations/udot-ft_sec2</node>
+   </chunk>
+
+   <chunk>
+     <name>vdot_ft_sec2</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/fdm/jsbsim/accelerations/vdot-ft_sec2</node>
+   </chunk>
+
+   <chunk>
+     <name>wdot_ft_sec2</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/fdm/jsbsim/accelerations/wdot-ft_sec2</node>
+   </chunk>
+
+
+   <!-- Angular Accelerations -->
+   <chunk>
+     <name>pdot_rad_sec2</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/fdm/jsbsim/accelerations/pdot-rad_sec2</node>
+   </chunk>
+
+   <chunk>
+     <name>qdot_rad_sec2</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/fdm/jsbsim/accelerations/qdot-rad_sec2</node>
+   </chunk>
+
+   <chunk>
+     <name>rdot_rad_sec2</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/fdm/jsbsim/accelerations/rdot-rad_sec2</node>
+   </chunk>
+
+   <!-- Moments -->
+   <chunk>
+     <name>l_total_lbsft</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/fdm/jsbsim/moments/l-total-lbsft</node>
+   </chunk>
+
+   <chunk>
+     <name>m_total_lbsft</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/fdm/jsbsim/moments/m-total-lbsft</node>
+   </chunk>
+
+   <chunk>
+     <name>n_total_lbsft</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/fdm/jsbsim/moments/n-total-lbsft</node>
+   </chunk>
+
+   <!-- Forces -->
+   <chunk>
+     <name>fbx_total_lbs</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/fdm/jsbsim/forces/fbx-total-lbs</node>
+   </chunk>
+
+   <chunk>
+     <name>fby_total_lbs</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/fdm/jsbsim/forces/fby-total-lbs</node>
+   </chunk>
+
+   <chunk>
+     <name>fbz_total_lbs</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/fdm/jsbsim/forces/fbz-total-lbs</node>
+   </chunk>
+
+   <!-- Surface Positions -->
+   <chunk>
+     <name>elevator-pos-norm</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/surface-positions/elevator-pos-norm[0]</node>
+   </chunk>
+   <chunk>
+     <name>flap-pos-norm</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/surface-positions/flap-pos-norm[0]</node>
+   </chunk>
+   <chunk>
+     <name>left-aileron-pos-norm</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/surface-positions/left-aileron-pos-norm[0]</node>
+   </chunk>
+   <chunk>
+     <name>right-aileron-pos-norm</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/surface-positions/right-aileron-pos-norm[0]</node>
+   </chunk>
+   <chunk>
+     <name>rudder-pos-norm</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/surface-positions/rudder-pos-norm[0]</node>
+   </chunk>
+
+   <!-- Environment variables -->
+   <chunk>
+     <name>Re</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/fdm/jsbsim/aero/Re</node>
+   </chunk>
+   <chunk>
+     <name>temperature-degc</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/environment/temperature-degc</node>
+   </chunk>
+   <chunk>
+     <name>density-slugft3</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/environment/density-slugft3</node>
+   </chunk>
+   <chunk>
+     <name>pressure-inhg</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/environment/pressure-inhg</node>
+   </chunk>
+   <chunk>
+     <name>gust-down</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/fdm/jsbsim/atmosphere/gust-down-fps</node>
+   </chunk>
+   <chunk>
+     <name>gust-east</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/fdm/jsbsim/atmosphere/gust-east-fps</node>
+   </chunk>
+   <chunk>
+     <name>gust-north</name>
+     <type>float</type>
+     <format>%f</format>
+     <node>/fdm/jsbsim/atmosphere/gust-north-fps</node>
+   </chunk>
+   
+  </output>
+
+ </generic>
+
+</PropertyList>
