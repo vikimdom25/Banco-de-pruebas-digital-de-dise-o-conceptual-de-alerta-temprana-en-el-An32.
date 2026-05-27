@@ -1,10 +1,23 @@
 import sys
+import numpy as np
+import pandas as pd
+import pyqtgraph as pg
+import pyqtgraph.opengl as gl
+
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QComboBox, QSlider, QPushButton, 
                              QLabel, QFrame, QDockWidget, QTabWidget, QStatusBar)
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QThread, QTimer
+from PyQt6.QtNetwork import QUdpSocket, QHostAddress
 
 from signals import event_bus
+from data_manager import DataManager
+from modeldriver import ModelWorker
+
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), 'Widgets'))
+from panel_sixpack import PanelSixPack
 
 class EngineeringWorkbench(QMainWindow):
     def __init__(self):
@@ -25,7 +38,7 @@ class EngineeringWorkbench(QMainWindow):
         # Pestaña 2: UDP Logger (Futura integración)
         self.tab_logger = QWidget()
         self.tabs.addTab(self.tab_logger, "Live UDP Acquisition")
-        # TODO: self._init_logger_tab()
+        self._init_logger_tab()
 
         # Configurar Barra de Estado
         self.setStatusBar(QStatusBar(self))
@@ -34,6 +47,71 @@ class EngineeringWorkbench(QMainWindow):
         # Conectar a señales globales
         event_bus.estado_sistema_cambiado.connect(self.statusBar().showMessage)
         event_bus.error_ocurrido.connect(self._mostrar_error)
+
+        # Iniciar Backend
+        self._init_backend()
+
+    def _init_backend(self):
+        # DataManager en Hilo Principal (o puede ir a thread)
+        self.data_manager = DataManager()
+
+        # ModelWorker en Hilo Separado (QThread)
+        self.ml_thread = QThread()
+        self.model_worker = ModelWorker()
+        self.model_worker.moveToThread(self.ml_thread)
+        self.ml_thread.start()
+
+        # Cargar el vuelo al iniciar
+        self.data_manager.cargar_vuelo()
+
+    def _init_logger_tab(self):
+        layout = QVBoxLayout(self.tab_logger)
+
+        lbl_titulo = QLabel("Adquisición Live UDP (FlightGear)")
+        lbl_titulo.setStyleSheet("font-size: 18px; font-weight: bold; color: #4CAF50;")
+
+        self.lbl_estado_udp = QLabel("Estado: Desconectado")
+        self.lbl_paquetes_udp = QLabel("Paquetes Recibidos: 0")
+
+        self.btn_iniciar_udp = QPushButton("Iniciar Captura")
+        self.btn_iniciar_udp.clicked.connect(self._toggle_udp)
+
+        layout.addWidget(lbl_titulo)
+        layout.addWidget(self.lbl_estado_udp)
+        layout.addWidget(self.lbl_paquetes_udp)
+        layout.addWidget(self.btn_iniciar_udp)
+        layout.addStretch()
+
+        self.udp_socket = QUdpSocket(self)
+        self.udp_socket.readyRead.connect(self._read_udp_datagrams)
+        self.is_logging_udp = False
+        self.udp_paquetes = 0
+
+    def _toggle_udp(self):
+        if not self.is_logging_udp:
+            # Iniciar (ej. 127.0.0.1 : 5500)
+            if self.udp_socket.bind(QHostAddress.SpecialAddress.LocalHost, 5500):
+                self.is_logging_udp = True
+                self.btn_iniciar_udp.setText("Detener Captura")
+                self.lbl_estado_udp.setText("Estado: Escuchando en 127.0.0.1:5500")
+                self.lbl_estado_udp.setStyleSheet("color: #4CAF50;")
+            else:
+                self.lbl_estado_udp.setText("Estado: Error al vincular el puerto 5500")
+                self.lbl_estado_udp.setStyleSheet("color: red;")
+        else:
+            self.udp_socket.close()
+            self.is_logging_udp = False
+            self.btn_iniciar_udp.setText("Iniciar Captura")
+            self.lbl_estado_udp.setText("Estado: Desconectado")
+            self.lbl_estado_udp.setStyleSheet("color: white;")
+
+    def _read_udp_datagrams(self):
+        while self.udp_socket.hasPendingDatagrams():
+            datagram, host, port = self.udp_socket.readDatagram(self.udp_socket.pendingDatagramSize())
+            self.udp_paquetes += 1
+            if self.udp_paquetes % 50 == 0:
+                self.lbl_paquetes_udp.setText(f"Paquetes Recibidos: {self.udp_paquetes}")
+            # En el futuro: Parsear datagram.data().decode('utf-8') y guardar a CSV
 
     def _init_replay_tab(self):
         layout_principal = QHBoxLayout(self.tab_replay)
@@ -49,7 +127,8 @@ class EngineeringWorkbench(QMainWindow):
         lbl_selector.setStyleSheet("font-weight: bold; font-size: 14px;")
         
         self.combo_vuelos = QComboBox()
-        # TODO: Conectar a DataManager para cargar vuelo
+        self.combo_vuelos.addItem("Vuelo Actual (HDF5/CSV)")
+        self.combo_vuelos.setEnabled(False)
         
         self.btn_play = QPushButton("▶ Play")
         self.btn_play.setStyleSheet("background-color: #4CAF50; padding: 10px; font-weight: bold;")
@@ -75,17 +154,33 @@ class EngineeringWorkbench(QMainWindow):
         panel_central = QFrame()
         layout_central = QVBoxLayout(panel_central)
         
-        lbl_3d = QLabel("[Placeholder para Vista 3D OpenGL]")
-        lbl_3d.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_3d.setStyleSheet("border: 1px dashed #555; background-color: #1e1e1e;")
+        # --- 2.1 Vista 3D OpenGL ---
+        self.vista_3d = gl.GLViewWidget()
+        self.vista_3d.opts['distance'] = 15
+        self.vista_3d.setBackgroundColor('#1e1e1e')
+        grid = gl.GLGridItem()
+        grid.setSize(x=20, y=20)
+        grid.setSpacing(x=2, y=2)
+        self.vista_3d.addItem(grid)
+        self.avion_3d = gl.GLAxisItem()
+        self.avion_3d.setSize(x=4, y=4, z=4)
+        self.vista_3d.addItem(self.avion_3d)
         
-        lbl_grafico = QLabel("[Placeholder para Gráficos Temporales]")
-        lbl_grafico.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_grafico.setStyleSheet("border: 1px dashed #555; background-color: #1e1e1e;")
-        lbl_grafico.setFixedHeight(250)
+        # --- 2.2 Gráfico de Altitud Dinámico ---
+        pg.setConfigOption('background', '#1e1e1e')
+        pg.setConfigOption('foreground', 'd')
+        self.grafico_altitud = pg.PlotWidget(title="Perfil de Altitud")
+        self.grafico_altitud.setLabel('left', 'Altitud', units='ft')
+        self.grafico_altitud.setLabel('bottom', 'Tiempo', units='s')
+        self.grafico_altitud.showGrid(x=True, y=True)
+        self.grafico_altitud.setFixedHeight(250)
+        self.curva_altitud = self.grafico_altitud.plot(pen=pg.mkPen('#00BFFF', width=2))
         
-        layout_central.addWidget(lbl_3d)
-        layout_central.addWidget(lbl_grafico)
+        self.hist_tiempo = []
+        self.hist_altitud = []
+
+        layout_central.addWidget(self.vista_3d)
+        layout_central.addWidget(self.grafico_altitud)
 
         # ==========================================
         # 3. PANEL DERECHO: Instrumentos e Inferencia (EICAS)
@@ -94,11 +189,18 @@ class EngineeringWorkbench(QMainWindow):
         panel_derecho.setFixedWidth(550)
         layout_derecho = QVBoxLayout(panel_derecho)
         
-        lbl_sixpack = QLabel("[Placeholder para Panel Six-Pack]")
-        lbl_sixpack.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_sixpack.setStyleSheet("border: 1px dashed #555; background-color: #2b2b2b;")
-        lbl_sixpack.setFixedHeight(400)
-        
+        # Instantiate Panel SixPack with dummy data
+        df_dummy = pd.DataFrame([{
+            'airspeed-kt': 0.0,
+            'altitude-ft': 0.0,
+            'pitch-deg': 0.0,
+            'roll-deg': 0.0,
+            'heading-deg': 0.0,
+            'vertical-speed-fps': 0.0
+        }])
+        self.panel_sixpack = PanelSixPack(df=df_dummy)
+        self.panel_sixpack.setFixedHeight(600)
+
         # Marco de Inferencia ML
         marco_inferencia = QFrame()
         marco_inferencia.setStyleSheet("background-color: #383838; border-radius: 5px; padding: 10px;")
@@ -115,7 +217,7 @@ class EngineeringWorkbench(QMainWindow):
         layout_inferencia.addWidget(self.lbl_salud)
         layout_inferencia.addWidget(self.lbl_alerta)
         
-        layout_derecho.addWidget(lbl_sixpack)
+        layout_derecho.addWidget(self.panel_sixpack)
         layout_derecho.addWidget(marco_inferencia)
         layout_derecho.addStretch()
 
@@ -124,11 +226,18 @@ class EngineeringWorkbench(QMainWindow):
         layout_principal.addWidget(panel_central)
         layout_principal.addWidget(panel_derecho)
 
-        # Conectar actualizaciones del UI a las señales (Placeholders por ahora)
+        # Conectar actualizaciones del UI a las señales
+        event_bus.vuelo_cargado.connect(self._on_vuelo_cargado)
         event_bus.telemetry_updated.connect(self._on_telemetry_updated)
         event_bus.inference_updated.connect(self._on_inference_updated)
         
         self.playing = False
+
+    def _on_vuelo_cargado(self, total_pasos: int):
+        self.slider_tiempo.setMaximum(total_pasos - 1)
+        self.slider_tiempo.setValue(0)
+        self.hist_tiempo.clear()
+        self.hist_altitud.clear()
 
     def _toggle_play(self):
         self.playing = not self.playing
@@ -147,16 +256,62 @@ class EngineeringWorkbench(QMainWindow):
         event_bus.seek_requested.emit(valor)
 
     def _on_telemetry_updated(self, data: dict):
-        # Aquí se actualizará el 3D, gráficos y SixPack delegando a sus respectivos widgets
-        pass
+        es_salto = data.get('es_salto', False)
+        if not es_salto:
+            self.slider_tiempo.blockSignals(True)
+            self.slider_tiempo.setValue(self.slider_tiempo.value() + 1)
+            self.slider_tiempo.blockSignals(False)
+
+        # Actualizar Vista 3D
+        pitch = data.get('pitch-deg', 0)
+        roll = data.get('roll-deg', 0)
+        yaw = data.get('heading-deg', 0)
+        self.avion_3d.resetTransform()
+        self.avion_3d.rotate(yaw, 0, 0, 1)
+        self.avion_3d.rotate(-pitch, 1, 0, 0)
+        self.avion_3d.rotate(roll, 0, 1, 0)
+
+        # Actualizar Gráfica
+        if es_salto:
+            self.hist_tiempo.clear()
+            self.hist_altitud.clear()
+            # En un caso real reconstruiríamos la historia, por ahora reseteamos
+        else:
+            # Asumiendo 50Hz, DT = 0.02
+            t_actual = len(self.hist_tiempo) * 0.02
+            self.hist_tiempo.append(t_actual)
+            self.hist_altitud.append(data.get('altitude-ft', 0))
+            self.curva_altitud.setData(self.hist_tiempo, self.hist_altitud)
+
+        # Actualizar Panel SixPack
+        df_un_instante = pd.DataFrame([data])
+        try:
+            self.panel_sixpack.df = df_un_instante
+            self.panel_sixpack._actualizar_instrumentos(0)
+        except Exception as e:
+            pass
 
     def _on_inference_updated(self, result: dict):
-        # Aquí se actualizará el panel de EICAS/ML
-        pass
-        
+        riesgo = result.get('riesgo_salud', 0.0)
+        alerta = result.get('alerta_roja_eicas', False)
+
+        self.lbl_salud.setText(f"Índice de Riesgo: {riesgo:.2f}")
+        if alerta:
+            self.lbl_alerta.setText("Estado: ¡ALERTA STALL/DIVE!")
+            self.lbl_alerta.setStyleSheet("color: red; font-weight: bold;")
+        else:
+            self.lbl_alerta.setText("Estado: NORMAL")
+            self.lbl_alerta.setStyleSheet("color: green; font-weight: bold;")
+
     def _mostrar_error(self, msg: str):
         self.statusBar().showMessage(f"ERROR: {msg}")
         self.statusBar().setStyleSheet("color: red; font-weight: bold;")
+
+    def closeEvent(self, event):
+        # Limpieza de hilos al cerrar
+        self.ml_thread.quit()
+        self.ml_thread.wait()
+        event.accept()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
