@@ -293,12 +293,16 @@ class EngineeringWorkbench(QMainWindow):
 
     def _on_inference_updated(self, result: dict):
         riesgo = result.get('riesgo_salud', 0.0)
-        alerta = result.get('alerta_roja_eicas', False)
+        alerta_roja = result.get('alerta_roja_eicas', False)
+        alerta_amarilla = result.get('alerta_amarilla_eicas', False)
 
         self.lbl_salud.setText(f"Índice de Riesgo: {riesgo:.2f}")
-        if alerta:
+        if alerta_roja:
             self.lbl_alerta.setText("Estado: ¡ALERTA STALL/DIVE!")
             self.lbl_alerta.setStyleSheet("color: red; font-weight: bold;")
+        elif alerta_amarilla:
+            self.lbl_alerta.setText("Estado: PRE-ALERTA (Stall inminente)")
+            self.lbl_alerta.setStyleSheet("color: orange; font-weight: bold;")
         else:
             self.lbl_alerta.setText("Estado: NORMAL")
             self.lbl_alerta.setStyleSheet("color: green; font-weight: bold;")

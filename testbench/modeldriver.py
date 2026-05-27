@@ -110,23 +110,65 @@ class AntonovTransformerModelV6(nn.Module):
 # 2. LOGICA EICAS HIBRIDA
 # ==========================================
 class ModuloAlertaEICAS_Hibrido:
-    def __init__(self, umbral_peligro=0.80):
+    def __init__(self, umbral_peligro=0.80, threshold_amarilla=2.5, decay=0.98):
         self.umbral  = umbral_peligro
         self.z_score = 1.96
+        self.threshold_amarilla = threshold_amarilla
+        self.decay = decay
+
+        # Estado interno para la alarma amarilla (evidencia acumulada)
+        self.evidencia_acumulada = 0.0
+        self.historial_p_max = deque(maxlen=10) # Para consistencia y varianza
+        self.last_p_max = 0.0
+
+    def reset_evidencia(self):
+        self.evidencia_acumulada = 0.0
+        self.historial_p_max.clear()
+        self.last_p_max = 0.0
 
     def evaluar_instancia(self, logits_fut_t, pred_mu_t, pred_log_var_t):
         probs = F.softmax(logits_fut_t, dim=1)
         p_clases = probs[:, 1] + probs[:, 2] + probs[:, 3]
         riesgo_base = 1.0 - pred_mu_t
         sigma = torch.exp(0.5 * pred_log_var_t)
-        p_max = torch.maximum(p_clases, riesgo_base)
-        lcb = torch.clamp(p_max - 1.96 * sigma, 0.0, 1.0)
 
-        estado = 0
+        p_max_t = torch.maximum(p_clases, riesgo_base)
+        lcb = torch.clamp(p_max_t - self.z_score * sigma, 0.0, 1.0)
+
+        p_max = p_max_t.item()
+        sigma_val = sigma.item()
+
+        # 1. Alarma Roja (Inminente)
+        alerta_roja = False
         if lcb.item() >= self.umbral:
-            estado = 2
+            alerta_roja = True
 
-        return estado, p_max.item(), sigma.item(), riesgo_base.item()
+        # 2. Alarma Amarilla (Acumulación de Evidencia)
+        p_clip = np.clip(p_max, 1e-6, 1 - 1e-6)
+        logit = np.log(p_clip / (1 - p_clip))
+        conf = 1.0 / (1.0 + sigma_val)
+        delta_p = p_max - self.last_p_max
+        momentum = max(delta_p, 0.0)
+
+        self.historial_p_max.append(p_max)
+
+        alerta_amarilla = False
+        if len(self.historial_p_max) > 2:
+            consistencia = np.mean(self.historial_p_max)
+            varianza_v = np.var(self.historial_p_max)
+
+            score = logit * conf
+            if consistencia > 0.55 and varianza_v < 0.04:
+                self.evidencia_acumulada = self.evidencia_acumulada * self.decay + score * (1.0 + momentum)
+            else:
+                self.evidencia_acumulada *= 0.92
+
+            self.evidencia_acumulada = max(self.evidencia_acumulada, 0.0)
+            alerta_amarilla = self.evidencia_acumulada >= self.threshold_amarilla
+
+        self.last_p_max = p_max
+
+        return alerta_roja, alerta_amarilla, p_max, sigma_val, riesgo_base.item()
 
 
 # ==========================================
@@ -149,6 +191,7 @@ class ModelWorker(QObject):
 
     def _limpiar_buffer(self, _):
         self.buffer.clear()
+        self.eicas.reset_evidencia()
 
     def _cargar_modelo_y_scalers(self):
         try:
@@ -200,7 +243,7 @@ class ModelWorker(QObject):
         with torch.no_grad():
             logits_actual, logits_futuro, pred_mu, pred_log_var = self.modelo(tensor)
 
-            estado_eicas, prob_max, sigma, riesgo_salud = self.eicas.evaluar_instancia(
+            alerta_roja, alerta_amarilla, prob_max, sigma, riesgo_salud = self.eicas.evaluar_instancia(
                 logits_futuro, pred_mu, pred_log_var
             )
 
@@ -210,7 +253,8 @@ class ModelWorker(QObject):
             # Emitir a la UI
             resultado = {
                 'clase_actual': clase_actual,
-                'alerta_roja_eicas': estado_eicas == 2,
+                'alerta_roja_eicas': alerta_roja,
+                'alerta_amarilla_eicas': alerta_amarilla,
                 'prob_peligro_max': prob_max,
                 'sigma': sigma,
                 'riesgo_salud': riesgo_salud

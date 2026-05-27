@@ -65,7 +65,15 @@ class DataManager(QObject):
 
     def _cargar_desde_csv(self):
         try:
-            df = pd.read_csv(RUTA_CSV_FALLBACK)
+            try:
+                df = pd.read_csv(RUTA_CSV_FALLBACK)
+            except pd.errors.EmptyDataError:
+                event_bus.error_ocurrido.emit("El archivo CSV está vacío o corrupto.")
+                return
+
+            if df.empty or len(df) < 2:
+                event_bus.error_ocurrido.emit("El CSV no tiene datos suficientes para interpolar.")
+                return
 
             if 'timestamp_ms' in df.columns:
                 # Ordenar y eliminar duplicados temporales que romperían scipy PchipInterpolator
@@ -75,7 +83,7 @@ class DataManager(QObject):
             time_raw = df['timestamp_ms'].values
 
             # Crear nuevo eje temporal uniforme a 50Hz (20ms)
-            time_uniform = np.arange(time_raw[0], time_raw[-1], int(DT * 1000))
+            time_uniform = np.arange(time_raw[0], time_raw[-1] + int(DT * 1000), int(DT * 1000))
 
             df_interp = pd.DataFrame({'timestamp_ms': time_uniform})
 
@@ -104,6 +112,7 @@ class DataManager(QObject):
     def _play(self):
         if not self.vuelo_actual_data: return
         self.timer.start(int(DT * 1000)) # 20 ms
+        print("[DataManager] Play activado.")
 
     def _pause(self):
         self.timer.stop()
