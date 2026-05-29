@@ -104,6 +104,9 @@ class DataManager(QObject):
             df_vuelo['airspeed-kt_dot'] = df_vuelo['airspeed-kt'].diff() / DT
             df_vuelo.fillna({'alpha-deg_dot': 0.0, 'nlf_dot': 0.0, 'airspeed-kt_dot': 0.0}, inplace=True)
 
+            # Convirtiendo a float nativo para evitar problemas de pyqtSignal con numpy.float64
+            df_vuelo = df_vuelo.astype(float)
+
             self.vuelo_actual_data = df_vuelo.to_dict('records')
 
         except Exception as e:
