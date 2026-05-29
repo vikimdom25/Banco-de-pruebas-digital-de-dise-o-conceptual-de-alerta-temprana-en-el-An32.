@@ -23,6 +23,9 @@ class GlobalEventBus(QObject):
     # Señal para carga manual de archivo HDF5/CSV
     manual_file_selected = pyqtSignal(str)
 
+    # Señal cuando se detectan multiples vuelos en HDF5
+    vuelos_disponibles = pyqtSignal(list)
+
     # Señales de Sistema
     error_ocurrido = pyqtSignal(str)
     estado_sistema_cambiado = pyqtSignal(str)

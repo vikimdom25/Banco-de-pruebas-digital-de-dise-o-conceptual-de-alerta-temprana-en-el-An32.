@@ -153,6 +153,7 @@ class EngineeringWorkbench(QMainWindow):
         self.combo_vuelos = QComboBox()
         self.combo_vuelos.addItem("Vuelo Actual (HDF5/CSV)")
         self.combo_vuelos.setEnabled(False)
+        self.combo_vuelos.currentIndexChanged.connect(self._vuelo_seleccionado)
         
         self.btn_play = QPushButton("▶ Play")
         self.btn_play.setStyleSheet("background-color: #4CAF50; padding: 10px; font-weight: bold;")
@@ -251,11 +252,27 @@ class EngineeringWorkbench(QMainWindow):
         layout_principal.addWidget(panel_derecho)
 
         # Conectar actualizaciones del UI a las señales
+        event_bus.vuelos_disponibles.connect(self._on_vuelos_disponibles)
         event_bus.vuelo_cargado.connect(self._on_vuelo_cargado)
         event_bus.telemetry_updated.connect(self._on_telemetry_updated)
         event_bus.inference_updated.connect(self._on_inference_updated)
         
         self.playing = False
+        self.ignorar_combo = False
+
+    def _on_vuelos_disponibles(self, vuelos: list):
+        self.ignorar_combo = True
+        self.combo_vuelos.clear()
+        self.combo_vuelos.addItems(vuelos)
+        self.combo_vuelos.setEnabled(True)
+        self.ignorar_combo = False
+
+    def _vuelo_seleccionado(self):
+        if self.ignorar_combo: return
+        vuelo = self.combo_vuelos.currentText()
+        if vuelo:
+            self.statusBar().showMessage(f"Cargando vuelo: {vuelo}...")
+            self.data_manager.seleccionar_vuelo(vuelo)
 
     def _on_vuelo_cargado(self, total_pasos: int):
         self.slider_tiempo.setMaximum(total_pasos - 1)
