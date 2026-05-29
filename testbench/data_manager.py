@@ -60,25 +60,62 @@ class DataManager(QObject):
     def _cargar_desde_hdf5(self, ruta: str):
         try:
             with h5py.File(ruta, 'r') as hf:
+                # Estructura 1: Directorios spliteados (Train/Val/Test) de preprocessing.py
                 if 'test' in hf:
                     grupo_base = hf['test']
                 elif 'val' in hf:
                     grupo_base = hf['val']
-                else:
+                elif 'train' in hf:
                     grupo_base = hf['train']
+                # Estructura 2: Archivo original de JSBSim/FlightGear (dynamic_states)
+                elif 'dynamic_states' in hf:
+                    grupo_base = hf['dynamic_states']
+                else:
+                    # Estructura 3: Intento de lectura plana
+                    grupo_base = hf
 
                 sim_keys = list(grupo_base.keys())
-                if not sim_keys: return
+                if not sim_keys:
+                    event_bus.error_ocurrido.emit("El archivo HDF5 no contiene grupos válidos.")
+                    return
 
                 seleccion = sim_keys[0] # Por ahora auto-seleccionamos el primero
-                dataset = grupo_base[seleccion]['features']
-                matriz_cruda = np.array(dataset)
 
-                nombres_columnas = [c.decode('utf-8') if isinstance(c, bytes) else c for c in dataset.attrs['feature_names']]
+                # Dependiendo de la estructura, extraer matriz
+                node = grupo_base[seleccion]
+                if isinstance(node, h5py.Group) and 'features' in node:
+                    # Estructura procesada
+                    dataset = node['features']
+                    matriz_cruda = np.array(dataset)
+                    nombres_columnas = [c.decode('utf-8') if isinstance(c, bytes) else c for c in dataset.attrs.get('feature_names', [])]
+                else:
+                    # Estructura cruda o plana
+                    dataset = node
+                    matriz_cruda = np.array(dataset)
+                    # Intentar leer los nombres de los features desde varios attrs comunes
+                    nombres_columnas = None
+                    for attr in ['columns', 'feature_names', 'labels']:
+                        if attr in dataset.attrs:
+                            nombres_columnas = [c.decode('utf-8') if isinstance(c, bytes) else c for c in dataset.attrs[attr]]
+                            break
+                    if nombres_columnas is None:
+                        # Fallback a los nombres gold si no tiene metadata
+                        nombres_columnas = [
+                            'timestamp_ms', 'ID_Vuelo', 'throttle', 'flap-pos-norm',
+                            'elevator-pos-norm', 'left-aileron-pos-norm', 'rudder-pos-norm',
+                            'altitude-ft', 'pitch-deg', 'roll-deg', 'alpha-deg',
+                            'side-slip-deg', 'airspeed-kt', 'vertical-speed-fps',
+                            'q_rad_sec', 'p_rad_sec', 'r_rad_sec', 'pilot-z-accel-fps_sec'
+                        ]
+                        # Trim o extender para hacer coincidir si es necesario
+                        if matriz_cruda.shape[1] < len(nombres_columnas):
+                            nombres_columnas = nombres_columnas[:matriz_cruda.shape[1]]
 
                 df_vuelo = pd.DataFrame(matriz_cruda, columns=nombres_columnas)
                 self.vuelo_actual_data = df_vuelo.to_dict('records')
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             event_bus.error_ocurrido.emit(f"Error HDF5: {e}")
 
     def _cargar_desde_csv(self, ruta: str):
