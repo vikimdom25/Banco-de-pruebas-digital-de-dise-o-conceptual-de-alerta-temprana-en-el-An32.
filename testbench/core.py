@@ -6,9 +6,11 @@ import pyqtgraph.opengl as gl
 
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QComboBox, QSlider, QPushButton, 
-                             QLabel, QFrame, QDockWidget, QTabWidget, QStatusBar)
+                             QLabel, QFrame, QDockWidget, QTabWidget, QStatusBar,
+                             QFileDialog)
 from PyQt6.QtCore import Qt, QThread, QTimer
 from PyQt6.QtNetwork import QUdpSocket, QHostAddress
+from PyQt6.QtGui import QAction
 
 from signals import event_bus
 from data_manager import DataManager
@@ -40,6 +42,8 @@ class EngineeringWorkbench(QMainWindow):
         self.tabs.addTab(self.tab_logger, "Live UDP Acquisition")
         self._init_logger_tab()
 
+        self._init_menu_bar()
+
         # Configurar Barra de Estado
         self.setStatusBar(QStatusBar(self))
         self.statusBar().showMessage("Sistema Inicializado. Esperando datos...")
@@ -50,6 +54,26 @@ class EngineeringWorkbench(QMainWindow):
 
         # Iniciar Backend
         self._init_backend()
+
+    def _init_menu_bar(self):
+        menubar = self.menuBar()
+        file_menu = menubar.addMenu("Archivo")
+
+        load_action = QAction("Cargar Dataset (HDF5/CSV)...", self)
+        load_action.triggered.connect(self._open_file_dialog)
+        file_menu.addAction(load_action)
+
+    def _open_file_dialog(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Seleccionar Base de Datos de Vuelo",
+            "",
+            "Archivos de Datos (*.h5 *.hdf5 *.csv);;HDF5 (*.h5 *.hdf5);;CSV (*.csv)"
+        )
+        if file_path:
+            self.statusBar().showMessage(f"Cargando {file_path}...")
+            # Emitir la señal al DataManager
+            event_bus.manual_file_selected.emit(file_path)
 
     def _init_backend(self):
         # DataManager en Hilo Principal (o puede ir a thread)

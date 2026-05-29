@@ -20,6 +20,9 @@ class GlobalEventBus(QObject):
     # Alerta amarilla de EICAS
     eicas_yellow_alert = pyqtSignal(bool)
 
+    # Señal para carga manual de archivo HDF5/CSV
+    manual_file_selected = pyqtSignal(str)
+
     # Señales de Sistema
     error_ocurrido = pyqtSignal(str)
     estado_sistema_cambiado = pyqtSignal(str)

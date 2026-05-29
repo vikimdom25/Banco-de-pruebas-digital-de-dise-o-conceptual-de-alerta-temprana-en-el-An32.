@@ -20,28 +20,46 @@ class DataManager(QObject):
         event_bus.play_requested.connect(self._play)
         event_bus.pause_requested.connect(self._pause)
         event_bus.seek_requested.connect(self._seek)
+        event_bus.manual_file_selected.connect(self.cargar_vuelo_manual)
 
-    def cargar_vuelo(self):
-        """Carga datos desde HDF5 o, en su defecto, CSV con PCHIP."""
-        if os.path.exists(RUTA_HDF5):
-            print(f"[DataManager] Cargando HDF5 desde: {RUTA_HDF5}")
-            self._cargar_desde_hdf5()
-        elif os.path.exists(RUTA_CSV_FALLBACK):
-            print(f"[DataManager] HDF5 no encontrado. Fallback a CSV: {RUTA_CSV_FALLBACK}")
-            self._cargar_desde_csv()
+    def cargar_vuelo_manual(self, ruta_archivo: str):
+        """Carga datos desde un archivo específico seleccionado por el usuario."""
+        if ruta_archivo.endswith('.h5') or ruta_archivo.endswith('.hdf5'):
+            print(f"[DataManager] Carga manual HDF5: {ruta_archivo}")
+            self._cargar_desde_hdf5(ruta_archivo)
+        elif ruta_archivo.endswith('.csv'):
+            print(f"[DataManager] Carga manual CSV: {ruta_archivo}")
+            self._cargar_desde_csv(ruta_archivo)
         else:
-            event_bus.error_ocurrido.emit("No se encontraron fuentes de datos (HDF5 ni CSV).")
+            event_bus.error_ocurrido.emit("Formato de archivo no soportado.")
             return
 
+        self._finalizar_carga()
+
+    def cargar_vuelo(self):
+        """Carga automática: datos desde HDF5 por defecto o CSV fallback."""
+        if os.path.exists(RUTA_HDF5):
+            print(f"[DataManager] Cargando HDF5 por defecto: {RUTA_HDF5}")
+            self._cargar_desde_hdf5(RUTA_HDF5)
+        elif os.path.exists(RUTA_CSV_FALLBACK):
+            print(f"[DataManager] HDF5 no encontrado. Fallback a CSV: {RUTA_CSV_FALLBACK}")
+            self._cargar_desde_csv(RUTA_CSV_FALLBACK)
+        else:
+            event_bus.error_ocurrido.emit("No se encontraron fuentes de datos (HDF5 ni CSV). Use Archivo -> Cargar Dataset para cargar manualmente.")
+            return
+
+        self._finalizar_carga()
+
+    def _finalizar_carga(self):
         if self.vuelo_actual_data:
             total_pasos = len(self.vuelo_actual_data)
             self.current_step = 0
             event_bus.vuelo_cargado.emit(total_pasos)
             event_bus.estado_sistema_cambiado.emit(f"Vuelo cargado exitosamente. {total_pasos} pasos.")
 
-    def _cargar_desde_hdf5(self):
+    def _cargar_desde_hdf5(self, ruta: str):
         try:
-            with h5py.File(RUTA_HDF5, 'r') as hf:
+            with h5py.File(ruta, 'r') as hf:
                 if 'test' in hf:
                     grupo_base = hf['test']
                 elif 'val' in hf:
@@ -63,10 +81,10 @@ class DataManager(QObject):
         except Exception as e:
             event_bus.error_ocurrido.emit(f"Error HDF5: {e}")
 
-    def _cargar_desde_csv(self):
+    def _cargar_desde_csv(self, ruta: str):
         try:
             try:
-                df = pd.read_csv(RUTA_CSV_FALLBACK)
+                df = pd.read_csv(ruta)
             except pd.errors.EmptyDataError:
                 event_bus.error_ocurrido.emit("El archivo CSV está vacío o corrupto.")
                 return
