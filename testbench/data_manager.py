@@ -195,9 +195,11 @@ class DataManager(QObject):
             self.current_step = idx
             fila = self.vuelo_actual_data[self.current_step].copy()
 
-            # Extraemos los datos anteriores para reconstruir buffer en el ML Worker
-            inicio = max(0, self.current_step - 499)
-            fila['ventana_salto'] = self.vuelo_actual_data[inicio : self.current_step + 1]
+            # Extraemos TODOS los datos anteriores para reconstruir la gráfica
+            # y el buffer de ML Worker
+            inicio_ml = max(0, self.current_step - 499)
+            fila['ventana_salto'] = self.vuelo_actual_data[inicio_ml : self.current_step + 1]
+            fila['historia_completa'] = self.vuelo_actual_data[0 : self.current_step + 1]
             fila['es_salto'] = True
 
             event_bus.telemetry_updated.emit(fila)

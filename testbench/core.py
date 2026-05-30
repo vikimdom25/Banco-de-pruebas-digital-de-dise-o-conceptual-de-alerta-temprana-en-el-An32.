@@ -314,9 +314,10 @@ class EngineeringWorkbench(QMainWindow):
 
         # Actualizar Gráfica
         if es_salto:
-            self.hist_tiempo.clear()
-            self.hist_altitud.clear()
-            # En un caso real reconstruiríamos la historia, por ahora reseteamos
+            historia = data.get('historia_completa', [])
+            self.hist_tiempo = [i * 0.02 for i in range(len(historia))]
+            self.hist_altitud = [f.get('altitude-ft', 0) for f in historia]
+            self.curva_altitud.setData(self.hist_tiempo, self.hist_altitud)
         else:
             # Asumiendo 50Hz, DT = 0.02
             t_actual = len(self.hist_tiempo) * 0.02
