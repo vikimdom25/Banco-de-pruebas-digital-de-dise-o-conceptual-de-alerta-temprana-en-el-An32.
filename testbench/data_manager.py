@@ -16,6 +16,7 @@ class DataManager(QObject):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick_simulacion)
         self.last_ruta_hdf5 = None
+        self.speed_multiplier = 1.0
 
         # Conectar a señales globales de control
         event_bus.play_requested.connect(self._play)
@@ -182,10 +183,25 @@ class DataManager(QObject):
         except Exception as e:
             event_bus.error_ocurrido.emit(f"Error CSV: {e}")
 
+    def set_speed_multiplier(self, mult: float):
+        self.speed_multiplier = mult
+        if self.timer.isActive():
+            if self.speed_multiplier > 10.0: # MAX mode (as fast as possible)
+                self.timer.start(0)
+            else:
+                base_ms = int(DT * 1000)
+                new_interval = max(1, int(base_ms / self.speed_multiplier))
+                self.timer.start(new_interval)
+
     def _play(self):
         if not self.vuelo_actual_data: return
-        self.timer.start(int(DT * 1000)) # 20 ms
-        print("[DataManager] Play activado.")
+        if self.speed_multiplier > 10.0:
+            self.timer.start(0)
+        else:
+            base_ms = int(DT * 1000)
+            new_interval = max(1, int(base_ms / self.speed_multiplier))
+            self.timer.start(new_interval)
+        print(f"[DataManager] Play activado. Multiplicador: {self.speed_multiplier}x")
 
     def _pause(self):
         self.timer.stop()

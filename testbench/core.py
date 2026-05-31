@@ -155,9 +155,18 @@ class EngineeringWorkbench(QMainWindow):
         self.combo_vuelos.setEnabled(False)
         self.combo_vuelos.currentIndexChanged.connect(self._vuelo_seleccionado)
         
+        layout_play_speed = QHBoxLayout()
         self.btn_play = QPushButton("▶ Play")
         self.btn_play.setStyleSheet("background-color: #4CAF50; padding: 10px; font-weight: bold;")
         self.btn_play.clicked.connect(self._toggle_play)
+
+        self.combo_speed = QComboBox()
+        self.combo_speed.addItems(["0.5x", "1.0x", "2.0x", "5.0x", "MAX"])
+        self.combo_speed.setCurrentIndex(1) # Default 1.0x
+        self.combo_speed.currentIndexChanged.connect(self._cambiar_velocidad)
+
+        layout_play_speed.addWidget(self.btn_play)
+        layout_play_speed.addWidget(self.combo_speed)
         
         lbl_tiempo = QLabel("Línea de Tiempo:")
         self.slider_tiempo = QSlider(Qt.Orientation.Horizontal)
@@ -167,7 +176,7 @@ class EngineeringWorkbench(QMainWindow):
         layout_izquierdo.addWidget(lbl_selector)
         layout_izquierdo.addWidget(self.combo_vuelos)
         layout_izquierdo.addSpacing(20)
-        layout_izquierdo.addWidget(self.btn_play)
+        layout_izquierdo.addLayout(layout_play_speed)
         layout_izquierdo.addSpacing(20)
         layout_izquierdo.addWidget(lbl_tiempo)
         layout_izquierdo.addWidget(self.slider_tiempo)
@@ -260,6 +269,19 @@ class EngineeringWorkbench(QMainWindow):
         self.playing = False
         self.ignorar_combo = False
 
+        # Throttler para Frame-Skipping: ~25 FPS maximos para la UI (independiente de los 50Hz de datos)
+        import time
+        self.last_ui_update_time = time.time()
+        self.UI_UPDATE_INTERVAL = 1.0 / 25.0
+
+    def _cambiar_velocidad(self):
+        text = self.combo_speed.currentText()
+        if text == "MAX":
+            mult = 999.0
+        else:
+            mult = float(text.replace("x", ""))
+        self.data_manager.set_speed_multiplier(mult)
+
     def _on_vuelos_disponibles(self, vuelos: list):
         self.ignorar_combo = True
         self.combo_vuelos.clear()
@@ -297,41 +319,51 @@ class EngineeringWorkbench(QMainWindow):
         event_bus.seek_requested.emit(valor)
 
     def _on_telemetry_updated(self, data: dict):
+        import time
         es_salto = data.get('es_salto', False)
+
+        # El slider siempre avanza sin importar el throttler
         if not es_salto:
             self.slider_tiempo.blockSignals(True)
             self.slider_tiempo.setValue(self.slider_tiempo.value() + 1)
             self.slider_tiempo.blockSignals(False)
 
-        # Actualizar Vista 3D
-        pitch = data.get('pitch-deg', 0)
-        roll = data.get('roll-deg', 0)
-        yaw = data.get('heading-deg', 0)
-        self.avion_3d.resetTransform()
-        self.avion_3d.rotate(yaw, 0, 0, 1)
-        self.avion_3d.rotate(-pitch, 1, 0, 0)
-        self.avion_3d.rotate(roll, 0, 1, 0)
-
-        # Actualizar Gráfica
-        if es_salto:
-            historia = data.get('historia_completa', [])
-            self.hist_tiempo = [i * 0.02 for i in range(len(historia))]
-            self.hist_altitud = [f.get('altitude-ft', 0) for f in historia]
-            self.curva_altitud.setData(self.hist_tiempo, self.hist_altitud)
-        else:
-            # Asumiendo 50Hz, DT = 0.02
+            # Acumulamos en la lista histórica (la data sí fluye a los arrays aunque no dibujemos)
             t_actual = len(self.hist_tiempo) * 0.02
             self.hist_tiempo.append(t_actual)
             self.hist_altitud.append(data.get('altitude-ft', 0))
-            self.curva_altitud.setData(self.hist_tiempo, self.hist_altitud)
 
-        # Actualizar Panel SixPack
-        df_un_instante = pd.DataFrame([data])
-        try:
-            self.panel_sixpack.df = df_un_instante
-            self.panel_sixpack._actualizar_instrumentos(0)
-        except Exception as e:
-            pass
+        now = time.time()
+        # Renderizado pesado condicionado por el Throttler (Frame-Skipping)
+        # O forzado si es un salto manual para actualizar todo de golpe
+        if es_salto or (now - self.last_ui_update_time) >= self.UI_UPDATE_INTERVAL:
+            self.last_ui_update_time = now
+
+            # Actualizar Vista 3D
+            pitch = data.get('pitch-deg', 0)
+            roll = data.get('roll-deg', 0)
+            yaw = data.get('heading-deg', 0)
+            self.avion_3d.resetTransform()
+            self.avion_3d.rotate(yaw, 0, 0, 1)
+            self.avion_3d.rotate(-pitch, 1, 0, 0)
+            self.avion_3d.rotate(roll, 0, 1, 0)
+
+            # Actualizar Gráfica
+            if es_salto:
+                historia = data.get('historia_completa', [])
+                self.hist_tiempo = [i * 0.02 for i in range(len(historia))]
+                self.hist_altitud = [f.get('altitude-ft', 0) for f in historia]
+                self.curva_altitud.setData(self.hist_tiempo, self.hist_altitud)
+            else:
+                self.curva_altitud.setData(self.hist_tiempo, self.hist_altitud)
+
+            # Actualizar Panel SixPack
+            df_un_instante = pd.DataFrame([data])
+            try:
+                self.panel_sixpack.df = df_un_instante
+                self.panel_sixpack._actualizar_instrumentos(0)
+            except Exception as e:
+                pass
 
     def _on_inference_updated(self, result: dict):
         riesgo = result.get('riesgo_salud', 0.0)
