@@ -138,13 +138,25 @@ class EngineeringWorkbench(QMainWindow):
             # En el futuro: Parsear datagram.data().decode('utf-8') y guardar a CSV
 
     def _init_replay_tab(self):
-        layout_principal = QHBoxLayout(self.tab_replay)
+        # En vez de un layout estático, usamos un QMainWindow interior para manejar los Docks
+        self.replay_window = QMainWindow()
+        self.replay_window.setWindowFlags(Qt.WindowType.Widget)
+
+        # Necesitamos un widget central vacío (o el principal 3D) para que los docks se adhieran
+        central_widget = QWidget()
+        self.replay_window.setCentralWidget(central_widget)
+
+        # El QTabWidget padre necesita alojar la sub-ventana
+        layout_principal = QVBoxLayout(self.tab_replay)
+        layout_principal.setContentsMargins(0,0,0,0)
+        layout_principal.addWidget(self.replay_window)
 
         # ==========================================
-        # 1. PANEL IZQUIERDO: Controles de Sesión
+        # 1. DOCK IZQUIERDO: Controles de Sesión
         # ==========================================
-        panel_izquierdo = QFrame()
-        panel_izquierdo.setFixedWidth(250)
+        dock_controls = QDockWidget("Session Controls", self.replay_window)
+        dock_controls.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
+        panel_izquierdo = QWidget()
         layout_izquierdo = QVBoxLayout(panel_izquierdo)
         
         lbl_selector = QLabel("Seleccionar Vuelo:")
@@ -182,13 +194,15 @@ class EngineeringWorkbench(QMainWindow):
         layout_izquierdo.addWidget(self.slider_tiempo)
         layout_izquierdo.addStretch()
 
+        dock_controls.setWidget(panel_izquierdo)
+        self.replay_window.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, dock_controls)
+
         # ==========================================
-        # 2. PANEL CENTRAL: Visualización y 3D
+        # 2. DOCK CENTRAL: Vista 3D
         # ==========================================
-        panel_central = QFrame()
-        layout_central = QVBoxLayout(panel_central)
+        dock_3d = QDockWidget("3D Aircraft View", self.replay_window)
+        dock_3d.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
         
-        # --- 2.1 Vista 3D OpenGL ---
         self.vista_3d = gl.GLViewWidget()
         self.vista_3d.opts['distance'] = 15
         self.vista_3d.setBackgroundColor('#1e1e1e')
@@ -196,14 +210,49 @@ class EngineeringWorkbench(QMainWindow):
         grid.setSize(x=20, y=20)
         grid.setSpacing(x=2, y=2)
         self.vista_3d.addItem(grid)
-        self.avion_3d = gl.GLAxisItem()
-        self.avion_3d.setSize(x=4, y=4, z=4)
+        # Avión 3D Mejorado (Wireframe en lugar de solo ejes)
+        vertices = np.array([
+            [0, 4, 0],    # 0: Nariz
+            [-1, 0, 0],   # 1: Raíz ala izq
+            [1, 0, 0],    # 2: Raíz ala der
+            [-5, -1, 0],  # 3: Punta ala izq
+            [5, -1, 0],   # 4: Punta ala der
+            [0, -4, 0],   # 5: Cola base
+            [0, -4.5, 2], # 6: Cola timón (Vertical)
+            [-2, -4.5, 0],# 7: Elevador izq
+            [2, -4.5, 0]  # 8: Elevador der
+        ])
+
+        # Conexiones para formar la estructura tipo wireframe
+        edges = np.array([
+            [0, 1], [0, 2], [1, 5], [2, 5], # Fuselaje
+            [1, 3], [2, 4],                 # Alas
+            [5, 6],                         # Timón vertical
+            [5, 7], [5, 8]                  # Elevadores horizontales
+        ])
+
+        colors = np.array([[1.0, 0.5, 0.0, 1.0] for _ in range(len(edges))]) # Naranja vibrante
+        self.avion_3d = gl.GLLinePlotItem(pos=vertices, color=colors, width=3, antialias=True, mode='lines')
         self.vista_3d.addItem(self.avion_3d)
         
-        # --- 2.2 Gráfico de Altitud Dinámico ---
+        # Ejes de referencia sutiles para orientación
+        self.avion_ejes = gl.GLAxisItem()
+        self.avion_ejes.setSize(x=2, y=2, z=2)
+        self.vista_3d.addItem(self.avion_ejes)
+
+        dock_3d.setWidget(self.vista_3d)
+        # Seteamos el 3D como el widget principal virtual del área dockable central
+        self.replay_window.setCentralWidget(dock_3d)
+
+        # ==========================================
+        # 3. DOCK INFERIOR: Gráfico de Altitud
+        # ==========================================
+        dock_graph = QDockWidget("Altitude Profile", self.replay_window)
+        dock_graph.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea | Qt.DockWidgetArea.TopDockWidgetArea)
+
         pg.setConfigOption('background', '#1e1e1e')
         pg.setConfigOption('foreground', 'd')
-        self.grafico_altitud = pg.PlotWidget(title="Perfil de Altitud")
+        self.grafico_altitud = pg.PlotWidget()
         self.grafico_altitud.setLabel('left', 'Altitud', units='ft')
         self.grafico_altitud.setLabel('bottom', 'Tiempo', units='s')
         self.grafico_altitud.showGrid(x=True, y=True)
@@ -213,14 +262,17 @@ class EngineeringWorkbench(QMainWindow):
         self.hist_tiempo = []
         self.hist_altitud = []
 
-        layout_central.addWidget(self.vista_3d)
-        layout_central.addWidget(self.grafico_altitud)
+        dock_graph.setWidget(self.grafico_altitud)
+        self.replay_window.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, dock_graph)
 
         # ==========================================
-        # 3. PANEL DERECHO: Instrumentos e Inferencia (EICAS)
+        # 4. DOCK DERECHO: Instrumentos e Inferencia (EICAS)
         # ==========================================
-        panel_derecho = QFrame()
-        panel_derecho.setFixedWidth(550)
+        dock_instruments = QDockWidget("EICAS & Instruments", self.replay_window)
+        dock_instruments.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
+
+        panel_derecho = QWidget()
+        panel_derecho.setMinimumWidth(350)
         layout_derecho = QVBoxLayout(panel_derecho)
         
         # Instantiate Panel SixPack with dummy data
@@ -233,7 +285,6 @@ class EngineeringWorkbench(QMainWindow):
             'vertical-speed-fps': 0.0
         }])
         self.panel_sixpack = PanelSixPack(df=df_dummy)
-        self.panel_sixpack.setFixedHeight(600)
 
         # Marco de Inferencia ML
         marco_inferencia = QFrame()
@@ -255,10 +306,8 @@ class EngineeringWorkbench(QMainWindow):
         layout_derecho.addWidget(marco_inferencia)
         layout_derecho.addStretch()
 
-        # Ensamblar Layout Principal
-        layout_principal.addWidget(panel_izquierdo)
-        layout_principal.addWidget(panel_central)
-        layout_principal.addWidget(panel_derecho)
+        dock_instruments.setWidget(panel_derecho)
+        self.replay_window.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock_instruments)
 
         # Conectar actualizaciones del UI a las señales
         event_bus.vuelos_disponibles.connect(self._on_vuelos_disponibles)
@@ -343,10 +392,16 @@ class EngineeringWorkbench(QMainWindow):
             pitch = data.get('pitch-deg', 0)
             roll = data.get('roll-deg', 0)
             yaw = data.get('heading-deg', 0)
+
             self.avion_3d.resetTransform()
             self.avion_3d.rotate(yaw, 0, 0, 1)
             self.avion_3d.rotate(-pitch, 1, 0, 0)
             self.avion_3d.rotate(roll, 0, 1, 0)
+
+            self.avion_ejes.resetTransform()
+            self.avion_ejes.rotate(yaw, 0, 0, 1)
+            self.avion_ejes.rotate(-pitch, 1, 0, 0)
+            self.avion_ejes.rotate(roll, 0, 1, 0)
 
             # Actualizar Gráfica
             if es_salto:
