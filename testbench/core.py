@@ -63,6 +63,19 @@ class EngineeringWorkbench(QMainWindow):
         load_action.triggered.connect(self._open_file_dialog)
         file_menu.addAction(load_action)
 
+        view_menu = menubar.addMenu("Ver")
+
+        # Permitimos reabrir paneles cerrados si están en la pestaña actual
+        # createPopupMenu genera las acciones para mostrar/ocultar los docks activos
+        self.view_menu_action = view_menu.aboutToShow.connect(self._actualizar_menu_vista)
+        self.view_menu = view_menu
+
+    def _actualizar_menu_vista(self):
+        self.view_menu.clear()
+        if hasattr(self, 'replay_window'):
+            # Añade las acciones de los QDockWidgets al menú "Ver"
+            self.view_menu.addActions(self.replay_window.createPopupMenu().actions())
+
     def _open_file_dialog(self):
         file_path, _ = QFileDialog.getOpenFileName(
             self,
@@ -223,16 +236,30 @@ class EngineeringWorkbench(QMainWindow):
             [2, -4.5, 0]  # 8: Elevador der
         ])
 
-        # Conexiones para formar la estructura tipo wireframe
-        edges = np.array([
-            [0, 1], [0, 2], [1, 5], [2, 5], # Fuselaje
-            [1, 3], [2, 4],                 # Alas
-            [5, 6],                         # Timón vertical
-            [5, 7], [5, 8]                  # Elevadores horizontales
+        # Para formar un wireframe conexo en OpenGL usando GLLinePlotItem (mode='lines'),
+        # debemos asegurarnos de que la estructura repita los vértices de inicio/fin en segmentos desconectados.
+        # Repetiremos vértices para crear trazos explícitos P1->P2, P2->P3, etc.
+
+        # Secuencia contigua para la silueta:
+        pos_lines = np.array([
+            # Contorno del fuselaje
+            vertices[0], vertices[1],
+            vertices[1], vertices[5],
+            vertices[5], vertices[2],
+            vertices[2], vertices[0],
+            # Ala izquierda
+            vertices[1], vertices[3],
+            # Ala derecha
+            vertices[2], vertices[4],
+            # Elevadores
+            vertices[7], vertices[5],
+            vertices[5], vertices[8],
+            # Timón
+            vertices[5], vertices[6]
         ])
 
-        colors = np.array([[1.0, 0.5, 0.0, 1.0] for _ in range(len(edges))]) # Naranja vibrante
-        self.avion_3d = gl.GLLinePlotItem(pos=vertices, color=colors, width=3, antialias=True, mode='lines')
+        colors = np.array([[1.0, 0.5, 0.0, 1.0] for _ in range(len(pos_lines))]) # Naranja vibrante
+        self.avion_3d = gl.GLLinePlotItem(pos=pos_lines, color=colors, width=3, antialias=True, mode='lines')
         self.vista_3d.addItem(self.avion_3d)
         
         # Ejes de referencia sutiles para orientación
