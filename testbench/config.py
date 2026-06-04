@@ -43,3 +43,7 @@ RUTA_CSV_FALLBACK = os.path.join(BASE_DIR, 'DATA', 'log_datos_2026-02-13_23-14-4
 # Modelo y Scalers
 RUTA_MODELO_V8 = os.path.join(BASE_DIR, 'Models', 'antonov_v8_produccion (1).pt')
 DIR_SCALERS = os.path.join(BASE_DIR, 'Models', 'scalers')
+
+# Protocolos UDP y Logs
+RUTA_XML_PROTOCOL = os.path.join(BASE_DIR, 'Data_generation', 'newplayback.xml')
+DIR_LOGS = os.path.join(BASE_DIR, 'DATA') # Guardamos los logs directamente en DATA

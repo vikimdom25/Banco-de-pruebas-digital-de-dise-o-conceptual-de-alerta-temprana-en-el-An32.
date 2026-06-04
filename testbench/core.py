@@ -12,6 +12,13 @@ from PyQt6.QtCore import Qt, QThread, QTimer
 from PyQt6.QtNetwork import QUdpSocket, QHostAddress
 from PyQt6.QtGui import QAction
 
+import csv
+import time
+import os
+import datetime
+import xml.etree.ElementTree as ET
+
+from config import RUTA_XML_PROTOCOL, DIR_LOGS
 from signals import event_bus
 from data_manager import DataManager
 from modeldriver import ModelWorker
@@ -123,24 +130,66 @@ class EngineeringWorkbench(QMainWindow):
         self.udp_socket.readyRead.connect(self._read_udp_datagrams)
         self.is_logging_udp = False
         self.udp_paquetes = 0
+        self.csv_file_handle = None
+        self.csv_writer = None
+        self.udp_start_time = 0
+
+    def _extraer_encabezados_xml(self):
+        try:
+            tree = ET.parse(RUTA_XML_PROTOCOL)
+            root = tree.getroot()
+            headers = []
+            for var in root.findall(".//chunk"):
+                name = var.find("name")
+                if name is not None and name.text:
+                    headers.append(name.text)
+            return ["timestamp_ms"] + headers
+        except Exception as e:
+            self._mostrar_error(f"Error leyendo XML: {e}")
+            return []
 
     def _toggle_udp(self):
         if not self.is_logging_udp:
-            # Iniciar (ej. 127.0.0.1 : 5500)
+            headers = self._extraer_encabezados_xml()
+            if not headers:
+                return
+
+            timestamp_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            os.makedirs(DIR_LOGS, exist_ok=True)
+            self.current_csv_path = os.path.join(DIR_LOGS, f"log_datos_{timestamp_str}.csv")
+
+            try:
+                self.csv_file_handle = open(self.current_csv_path, "w", newline="")
+                self.csv_writer = csv.writer(self.csv_file_handle)
+                self.csv_writer.writerow(headers)
+            except Exception as e:
+                self._mostrar_error(f"No se pudo crear CSV: {e}")
+                return
+
+            # Iniciar escucha UDP en LocalHost:5500
             if self.udp_socket.bind(QHostAddress.SpecialAddress.LocalHost, 5500):
                 self.is_logging_udp = True
+                self.udp_paquetes = 0
+                self.udp_start_time = time.time()
                 self.btn_iniciar_udp.setText("Detener Captura")
-                self.lbl_estado_udp.setText("Estado: Escuchando en 127.0.0.1:5500")
+                self.lbl_estado_udp.setText(f"Estado: Grabando en {self.current_csv_path}")
                 self.lbl_estado_udp.setStyleSheet("color: #4CAF50;")
             else:
                 self.lbl_estado_udp.setText("Estado: Error al vincular el puerto 5500")
                 self.lbl_estado_udp.setStyleSheet("color: red;")
+                self.csv_file_handle.close()
         else:
             self.udp_socket.close()
+            if self.csv_file_handle:
+                self.csv_file_handle.close()
+
             self.is_logging_udp = False
             self.btn_iniciar_udp.setText("Iniciar Captura")
-            self.lbl_estado_udp.setText("Estado: Desconectado")
+            self.lbl_estado_udp.setText("Estado: Guardado y Desconectado.")
             self.lbl_estado_udp.setStyleSheet("color: white;")
+
+            # Auto-cargar el archivo capturado en el Replay Station
+            event_bus.manual_file_selected.emit(self.current_csv_path)
 
     def _read_udp_datagrams(self):
         while self.udp_socket.hasPendingDatagrams():
@@ -148,7 +197,15 @@ class EngineeringWorkbench(QMainWindow):
             self.udp_paquetes += 1
             if self.udp_paquetes % 50 == 0:
                 self.lbl_paquetes_udp.setText(f"Paquetes Recibidos: {self.udp_paquetes}")
-            # En el futuro: Parsear datagram.data().decode('utf-8') y guardar a CSV
+
+            try:
+                valores_str = datagram.data().decode("utf-8").strip().split(",")
+                valores = list(map(float, valores_str))
+                elapsed_time_ms = int((time.time() - self.udp_start_time) * 1000)
+                fila = [elapsed_time_ms] + valores
+                self.csv_writer.writerow(fila)
+            except Exception as e:
+                pass # Ignorar paquetes malformados sin crashear la UI
 
     def _init_replay_tab(self):
         # En vez de un layout estático, usamos un QMainWindow interior para manejar los Docks
