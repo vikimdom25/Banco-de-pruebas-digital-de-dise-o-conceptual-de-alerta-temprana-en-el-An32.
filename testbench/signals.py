@@ -26,6 +26,10 @@ class GlobalEventBus(QObject):
     # Señal cuando se detectan multiples vuelos en HDF5
     vuelos_disponibles = pyqtSignal(list)
 
+    # Señal enviada por el DataManager cuando termina de procesar un DataFrame completo
+    # Ideal para cargar el panel de gráficos. Envía pd.DataFrame.
+    dataframe_ready = pyqtSignal(object)
+
     # Señales de Sistema
     error_ocurrido = pyqtSignal(str)
     estado_sistema_cambiado = pyqtSignal(str)

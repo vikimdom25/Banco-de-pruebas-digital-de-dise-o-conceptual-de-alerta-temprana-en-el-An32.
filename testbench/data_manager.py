@@ -7,6 +7,7 @@ from PyQt6.QtCore import QObject, QTimer
 
 from config import RUTA_HDF5, RUTA_CSV_FALLBACK, DT, FRECUENCIA_HZ
 from signals import event_bus
+from fsm import calcular_fsm_etiquetas
 
 class DataManager(QObject):
     def __init__(self):
@@ -58,6 +59,9 @@ class DataManager(QObject):
             self.current_step = 0
             event_bus.vuelo_cargado.emit(total_pasos)
             event_bus.estado_sistema_cambiado.emit(f"Vuelo cargado exitosamente. {total_pasos} pasos.")
+
+            # Emitir tick 0 automáticamente para refrescar la UI (3D, paneles, etc)
+            self._emit_telemetry()
 
     def seleccionar_vuelo(self, flight_key: str):
         """Carga un vuelo especifico si el HDF5 previamente cargado tiene varios."""
@@ -132,7 +136,26 @@ class DataManager(QObject):
                     nombres_columnas = nombres_columnas[:matriz_cruda.shape[1]]
 
         df_vuelo = pd.DataFrame(matriz_cruda, columns=nombres_columnas)
+
+        if 'pilot-z-accel-fps_sec' in df_vuelo.columns and 'nlf' not in df_vuelo.columns:
+            df_vuelo.rename(columns={'pilot-z-accel-fps_sec': 'nlf'}, inplace=True)
+
+        # Add derivatives if they don't exist
+        if 'alpha-deg_dot' not in df_vuelo.columns:
+            df_vuelo['alpha-deg_dot'] = df_vuelo['alpha-deg'].diff() / DT
+            df_vuelo['nlf_dot'] = df_vuelo['nlf'].diff() / DT
+            df_vuelo['airspeed-kt_dot'] = df_vuelo['airspeed-kt'].diff() / DT
+            df_vuelo.fillna({'alpha-deg_dot': 0.0, 'nlf_dot': 0.0, 'airspeed-kt_dot': 0.0}, inplace=True)
+
+        # Calcular FSM Ground Truth
+        fsm_labels = calcular_fsm_etiquetas(df_vuelo)
+        df_vuelo['FSM_State'] = fsm_labels
+
+        # Convirtiendo a float nativo para evitar problemas de pyqtSignal con numpy.float64
+        df_vuelo = df_vuelo.astype(float)
+
         self.vuelo_actual_data = df_vuelo.to_dict('records')
+        event_bus.dataframe_ready.emit(df_vuelo)
 
     def _cargar_desde_csv(self, ruta: str):
         try:
@@ -175,10 +198,15 @@ class DataManager(QObject):
             df_vuelo['airspeed-kt_dot'] = df_vuelo['airspeed-kt'].diff() / DT
             df_vuelo.fillna({'alpha-deg_dot': 0.0, 'nlf_dot': 0.0, 'airspeed-kt_dot': 0.0}, inplace=True)
 
+            # Calcular FSM Ground Truth
+            fsm_labels = calcular_fsm_etiquetas(df_vuelo)
+            df_vuelo['FSM_State'] = fsm_labels
+
             # Convirtiendo a float nativo para evitar problemas de pyqtSignal con numpy.float64
             df_vuelo = df_vuelo.astype(float)
 
             self.vuelo_actual_data = df_vuelo.to_dict('records')
+            event_bus.dataframe_ready.emit(df_vuelo)
 
         except Exception as e:
             event_bus.error_ocurrido.emit(f"Error CSV: {e}")

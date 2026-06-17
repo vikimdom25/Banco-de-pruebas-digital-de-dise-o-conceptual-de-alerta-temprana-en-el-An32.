@@ -79,9 +79,22 @@ class EngineeringWorkbench(QMainWindow):
 
     def _actualizar_menu_vista(self):
         self.view_menu.clear()
+
+        # Acción personalizada para restaurar la vista por defecto
+        reset_action = QAction("Restaurar Vista por Defecto", self)
+        reset_action.triggered.connect(self._restaurar_docks)
+        self.view_menu.addAction(reset_action)
+        self.view_menu.addSeparator()
+
         if hasattr(self, 'replay_window'):
             # Añade las acciones de los QDockWidgets al menú "Ver"
             self.view_menu.addActions(self.replay_window.createPopupMenu().actions())
+
+    def _restaurar_docks(self):
+        """Restaura todos los QDockWidgets a su posición y estado visible original"""
+        for dock in self.replay_window.findChildren(QDockWidget):
+            dock.setFloating(False)
+            dock.setVisible(True)
 
     def _open_file_dialog(self):
         file_path, _ = QFileDialog.getOpenFileName(
