@@ -4,10 +4,15 @@ import pandas as pd
 import numpy as np
 import random # Sigue siendo útil si la paleta de colores se agota y quieres un fallback
 
+from signals import event_bus
+
 class PanelVariableVsTiempo(QtWidgets.QWidget):
-    def __init__(self, df, parent=None):
+    def __init__(self, df=None, parent=None):
         super().__init__(parent)
-        self.df = self.preprocesar_df(df.copy()) # Trabajar con una copia para no modificar el original
+        if df is None:
+            self.df = pd.DataFrame()
+        else:
+            self.df = self.preprocesar_df(df.copy()) # Trabajar con una copia para no modificar el original
         self.plotteable_columns = []
         self.color_palette = [
             QtGui.QColor(255, 87, 34),   # Naranja Intenso
@@ -44,27 +49,27 @@ class PanelVariableVsTiempo(QtWidgets.QWidget):
         # Aquí mantenemos la lógica original de normalizar el timestamp si existe.
         if 'timestamp' in df.columns and not df['timestamp'].isnull().all():
             df['timestamp'] = df['timestamp'] - df['timestamp'].iloc[0]
+        elif 'timestamp_ms' in df.columns and not df['timestamp_ms'].isnull().all():
+            df['timestamp_ms'] = df['timestamp_ms'] - df['timestamp_ms'].iloc[0]
         else:
             # Si no hay 'timestamp', crear uno a partir del índice para poder graficar
             df['timestamp'] = np.arange(len(df))
 
-        df.dropna(how='all', axis=0, inplace=True) # Elimina filas donde *todo* es NaN
+        if not df.empty:
+            df.dropna(how='all', axis=0, inplace=True) # Elimina filas donde *todo* es NaN
         return df
 
     def init_ui(self):
         layout = QtWidgets.QVBoxLayout(self)
 
-        # Filtrar columnas numéricas válidas para plottear
-        # (excluyendo 'timestamp' ya que es el eje X)
-        numeric_cols = self.df.select_dtypes(include=[np.number]).columns
-        self.plotteable_columns = [col for col in numeric_cols if col != 'timestamp']
-
         # Lista para selección múltiple
         self.selector = QtWidgets.QListWidget()
         # Usar QAbstractItemView.ExtendedSelection para el modo de selección
         self.selector.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.selector.addItems(self.plotteable_columns)
+        self.selector.setMaximumHeight(80) # Hacer el selector más pequeño
         self.selector.itemSelectionChanged.connect(self.actualizar_grafica)
+
+        event_bus.dataframe_ready.connect(self.cargar_nuevo_df)
 
         # Widget de Gráfico
         self.plot_widget = pg.PlotWidget(background='k') # Fondo negro
@@ -88,6 +93,25 @@ class PanelVariableVsTiempo(QtWidgets.QWidget):
             # Seleccionar la primera variable por defecto, si hay alguna
             self.selector.setCurrentRow(0)
 
+    def cargar_nuevo_df(self, df_nuevo):
+        self.df = self.preprocesar_df(df_nuevo.copy())
+
+        numeric_cols = self.df.select_dtypes(include=[np.number]).columns
+        self.plotteable_columns = [col for col in numeric_cols if col not in ['timestamp', 'timestamp_ms']]
+
+        self.selector.blockSignals(True)
+        self.selector.clear()
+        self.selector.addItems(self.plotteable_columns)
+        self.selector.blockSignals(False)
+
+        # Seleccionar algunas por defecto si existen
+        default_cols = ['FSM_State', 'altitude-ft', 'alpha-deg', 'airspeed-kt']
+        for i in range(self.selector.count()):
+            item = self.selector.item(i)
+            if item.text() in default_cols:
+                item.setSelected(True)
+
+        self.actualizar_grafica()
 
     def actualizar_grafica(self):
         self.plot_widget.clear() # Limpiar plots anteriores
@@ -98,7 +122,11 @@ class PanelVariableVsTiempo(QtWidgets.QWidget):
         # No es necesario volver a añadirla si ya existe y solo actualizamos los datos de las curvas.
         # self.plot_widget.addLegend(offset=(-10,10)) # Se añade en init_ui
 
-        tiempo = self.df['timestamp'] # Ya es numérico y normalizado desde preprocesar_df
+        # Usar timestamp_ms si existe, sino timestamp
+        if 'timestamp_ms' in self.df.columns:
+            tiempo = self.df['timestamp_ms'] / 1000.0 # Segundos
+        else:
+            tiempo = self.df.get('timestamp', np.arange(len(self.df)))
 
         selected_items = self.selector.selectedItems()
         if not selected_items: # Si no hay nada seleccionado, no hacer nada más
@@ -110,7 +138,7 @@ class PanelVariableVsTiempo(QtWidgets.QWidget):
 
         for i, item_widget in enumerate(selected_items):
             variable_name = item_widget.text()
-            
+
             if variable_name not in self.df.columns:
                 continue # Seguridad, aunque no debería pasar con QListWidget poblado así
 
@@ -119,7 +147,7 @@ class PanelVariableVsTiempo(QtWidgets.QWidget):
             # Máscara para filtrar datos válidos (no NaN/NaT en tiempo o valores)
             # NaT (Not a Time) también se considera no finito por isfinite en algunos contextos numéricos
             valid_mask = np.isfinite(tiempo) & np.isfinite(valores)
-            
+
             t_plot = tiempo[valid_mask].to_numpy()
             y_plot = valores[valid_mask].to_numpy()
 
@@ -134,7 +162,7 @@ class PanelVariableVsTiempo(QtWidgets.QWidget):
                 color = QtGui.QColor(random.randint(50, 200), random.randint(50, 200), random.randint(50, 200))
 
             pen = pg.mkPen(color=color, width=2)
-            
+
             # Añadir la curva al plot. El 'name' es usado por la leyenda.
             self.plot_widget.plot(t_plot, y_plot, pen=pen, name=variable_name)
 

@@ -5,13 +5,13 @@ import numpy as np
 from PyQt6 import QtWidgets, QtCore, QtGui
 
 # Importar TODOS los widgets de instrumentos
-from instrument_widgets import (
+from Instruments import (
     AttitudeIndicatorWidget, HeadingIndicatorWidget, 
     AirspeedIndicatorWidget, AltimeterWidget, 
     VSIndicatorWidget, TurnIndicatorWidget
 )
 
-from instrument_widgets import (
+from Instruments import (
     AttitudeIndicatorWidget, HeadingIndicatorWidget, 
     AirspeedIndicatorWidget, AltimeterWidget, 
     VSIndicatorWidget, TurnIndicatorWidget
