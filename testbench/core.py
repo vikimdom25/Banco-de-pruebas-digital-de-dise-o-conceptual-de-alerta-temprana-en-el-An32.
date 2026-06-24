@@ -501,13 +501,12 @@ class EngineeringWorkbench(QMainWindow):
             self.avion_ejes.rotate(roll, 0, 1, 0)
 
             # Actualizar Gráfica
-            if es_salto:
-                historia = data.get('historia_completa', [])
+            historia = data.get('historia_completa', [])
+            if len(historia) > 0:
                 self.hist_tiempo = [i * 0.02 for i in range(len(historia))]
                 self.hist_altitud = [f.get('altitude-ft', 0) for f in historia]
-                self.curva_altitud.setData(self.hist_tiempo, self.hist_altitud)
-            else:
-                self.curva_altitud.setData(self.hist_tiempo, self.hist_altitud)
+
+            self.curva_altitud.setData(self.hist_tiempo, self.hist_altitud)
 
             # Actualizar Panel SixPack
             df_un_instante = pd.DataFrame([data])
