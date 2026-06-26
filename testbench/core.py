@@ -76,6 +76,10 @@ class EngineeringWorkbench(QMainWindow):
         load_action.triggered.connect(self._open_file_dialog)
         file_menu.addAction(load_action)
 
+        export_action = QAction("Exportar Reporte Validación FSM/IA (CSV)...", self)
+        export_action.triggered.connect(self._exportar_validacion)
+        file_menu.addAction(export_action)
+
         view_menu = menubar.addMenu("Ver")
 
         # Permitimos reabrir paneles cerrados si están en la pestaña actual
@@ -371,6 +375,7 @@ class EngineeringWorkbench(QMainWindow):
         
         self.hist_tiempo = []
         self.hist_altitud = []
+        self.historial_predicciones = []
 
         dock_graph.setWidget(self.grafico_altitud)
         self.replay_window.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, dock_graph)
@@ -454,8 +459,12 @@ class EngineeringWorkbench(QMainWindow):
         self.lbl_estado_ia = QLabel("Estado: --")
         self.lbl_estado_ia.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_estado_ia.setStyleSheet("font-size: 16px; font-weight: bold; color: gray;")
+        self.lbl_t2s = QLabel("T2S: --")
+        self.lbl_t2s.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_t2s.setStyleSheet("font-size: 14px; color: #aaaaaa;")
         layout_ia.addWidget(lbl_titulo_ia)
         layout_ia.addWidget(self.lbl_estado_ia)
+        layout_ia.addWidget(self.lbl_t2s)
 
         layout_fsm.addWidget(lbl_titulo_fsm)
         layout_fsm.addWidget(marco_fisica)
@@ -506,6 +515,7 @@ class EngineeringWorkbench(QMainWindow):
         self.slider_tiempo.setValue(0)
         self.hist_tiempo.clear()
         self.hist_altitud.clear()
+        self.historial_predicciones.clear()
 
     def _toggle_play(self):
         self.playing = not self.playing
@@ -550,14 +560,15 @@ class EngineeringWorkbench(QMainWindow):
             yaw = data.get('heading-deg', 0)
 
             self.avion_3d.resetTransform()
-            self.avion_3d.rotate(yaw, 0, 0, 1)
-            self.avion_3d.rotate(-pitch, 1, 0, 0)
-            self.avion_3d.rotate(roll, 0, 1, 0)
+            # X=Right, Y=Forward, Z=Up
+            self.avion_3d.rotate(-yaw, 0, 0, 1)    # Yaw (Heading): -Z is right turn
+            self.avion_3d.rotate(pitch, 1, 0, 0)   # Pitch: +X is nose up
+            self.avion_3d.rotate(-roll, 0, 1, 0)   # Roll: -Y is right wing down
 
             self.avion_ejes.resetTransform()
-            self.avion_ejes.rotate(yaw, 0, 0, 1)
-            self.avion_ejes.rotate(-pitch, 1, 0, 0)
-            self.avion_ejes.rotate(roll, 0, 1, 0)
+            self.avion_ejes.rotate(-yaw, 0, 0, 1)
+            self.avion_ejes.rotate(pitch, 1, 0, 0)
+            self.avion_ejes.rotate(-roll, 0, 1, 0)
 
             # Actualizar Gráfica
             historia = data.get('historia_completa', [])
@@ -597,11 +608,19 @@ class EngineeringWorkbench(QMainWindow):
                 self.lbl_estado_fsm.setStyleSheet("font-size: 16px; font-weight: bold; color: cyan;")
 
     def _on_inference_updated(self, result: dict):
+        self.historial_predicciones.append(result)
+
         riesgo = result.get('riesgo_salud', 0.0)
+        sigma = result.get('sigma', 0.0)
         alerta_roja = result.get('alerta_roja_eicas', False)
         alerta_amarilla = result.get('alerta_amarilla_eicas', False)
 
         self.lbl_salud.setText(f"Índice de Riesgo: {riesgo:.2f}")
+
+        # Calcular T2S (Asumiendo que riesgo = 1 - (T2S/30.0))
+        t2s = (1.0 - riesgo) * 30.0
+        t2s_sigma = sigma * 30.0
+        self.lbl_t2s.setText(f"T2S: {t2s:.1f}s ± {t2s_sigma:.1f}s")
         if alerta_roja:
             self.lbl_alerta.setText("Estado: ¡ALERTA STALL/DIVE!")
             self.lbl_alerta.setStyleSheet("color: red; font-weight: bold;")
@@ -617,6 +636,40 @@ class EngineeringWorkbench(QMainWindow):
             self.lbl_alerta.setStyleSheet("color: green; font-weight: bold;")
             self.lbl_estado_ia.setText("Estado: NORMAL")
             self.lbl_estado_ia.setStyleSheet("font-size: 16px; font-weight: bold; color: green;")
+
+    def _exportar_validacion(self):
+        if not self.data_manager.vuelo_actual_data:
+            self._mostrar_error("No hay datos de vuelo cargados para exportar.")
+            return
+
+        ruta, _ = QFileDialog.getSaveFileName(self, "Exportar Reporte de Validación", "", "CSV Files (*.csv)")
+        if not ruta:
+            return
+
+        try:
+            # Crear DataFrame de Física (Ground Truth)
+            df_fisica = pd.DataFrame(self.data_manager.vuelo_actual_data)
+            columnas_fisica = ['timestamp_ms', 'FSM_Realtime_State', 'FSM_State', 'altitude-ft', 'alpha-deg', 'nlf', 'vertical-speed-fps']
+            columnas_fisica_existentes = [col for col in columnas_fisica if col in df_fisica.columns]
+            df_fisica = df_fisica[columnas_fisica_existentes]
+
+            # Crear DataFrame de Predicciones IA
+            if self.historial_predicciones:
+                df_ia = pd.DataFrame(self.historial_predicciones)
+                # Promediar o eliminar duplicados si hay para el mismo timestamp
+                if 'timestamp_ms' in df_ia.columns:
+                    df_ia = df_ia.drop_duplicates(subset=['timestamp_ms'], keep='last')
+                    df_export = pd.merge(df_fisica, df_ia, on='timestamp_ms', how='left')
+                else:
+                    df_export = df_fisica
+            else:
+                df_export = df_fisica
+
+            df_export.to_csv(ruta, index=False)
+            self.statusBar().showMessage(f"Reporte exportado exitosamente a {ruta}")
+            self.statusBar().setStyleSheet("color: green; font-weight: bold;")
+        except Exception as e:
+            self._mostrar_error(f"Error exportando reporte: {e}")
 
     def _mostrar_error(self, msg: str):
         self.statusBar().showMessage(f"ERROR: {msg}")
