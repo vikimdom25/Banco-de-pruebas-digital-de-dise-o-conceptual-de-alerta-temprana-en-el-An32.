@@ -406,6 +406,52 @@ class EngineeringWorkbench(QMainWindow):
         dock_instruments.setWidget(panel_derecho)
         self.replay_window.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock_instruments)
 
+        # ==========================================
+        # 5. DOCK IZQUIERDO: FSM Ground Truth vs IA
+        # ==========================================
+        dock_fsm = QDockWidget("FSM Ground Truth", self.replay_window)
+        dock_fsm.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
+
+        panel_fsm = QWidget()
+        panel_fsm.setMinimumWidth(300)
+        layout_fsm = QVBoxLayout(panel_fsm)
+
+        lbl_titulo_fsm = QLabel("LABORATORIO DE VALIDACIÓN FSM")
+        lbl_titulo_fsm.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_titulo_fsm.setStyleSheet("font-weight: bold; color: #FFFFFF; font-size: 14px;")
+
+        # Ground Truth Física
+        marco_fisica = QFrame()
+        marco_fisica.setStyleSheet("background-color: #2b2b2b; border-radius: 5px; padding: 10px;")
+        layout_fisica = QVBoxLayout(marco_fisica)
+        lbl_titulo_fisica = QLabel("FSM Ground Truth (Física)")
+        lbl_titulo_fisica.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_estado_fsm = QLabel("Estado: --")
+        self.lbl_estado_fsm.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_estado_fsm.setStyleSheet("font-size: 16px; font-weight: bold; color: gray;")
+        layout_fisica.addWidget(lbl_titulo_fisica)
+        layout_fisica.addWidget(self.lbl_estado_fsm)
+
+        # Predicción IA
+        marco_ia = QFrame()
+        marco_ia.setStyleSheet("background-color: #2b2b2b; border-radius: 5px; padding: 10px;")
+        layout_ia = QVBoxLayout(marco_ia)
+        lbl_titulo_ia = QLabel("Predicción Modelo (IA)")
+        lbl_titulo_ia.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_estado_ia = QLabel("Estado: --")
+        self.lbl_estado_ia.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_estado_ia.setStyleSheet("font-size: 16px; font-weight: bold; color: gray;")
+        layout_ia.addWidget(lbl_titulo_ia)
+        layout_ia.addWidget(self.lbl_estado_ia)
+
+        layout_fsm.addWidget(lbl_titulo_fsm)
+        layout_fsm.addWidget(marco_fisica)
+        layout_fsm.addWidget(marco_ia)
+        layout_fsm.addStretch()
+
+        dock_fsm.setWidget(panel_fsm)
+        self.replay_window.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, dock_fsm)
+
         # Conectar actualizaciones del UI a las señales
         event_bus.vuelos_disponibles.connect(self._on_vuelos_disponibles)
         event_bus.vuelo_cargado.connect(self._on_vuelo_cargado)
@@ -516,6 +562,27 @@ class EngineeringWorkbench(QMainWindow):
             except Exception as e:
                 pass
 
+            # Actualizar FSM Ground Truth
+            fsm_state = data.get('FSM_Realtime_State', data.get('FSM_State', 0))
+            if fsm_state == 0:
+                self.lbl_estado_fsm.setText("Estado: NORMAL")
+                self.lbl_estado_fsm.setStyleSheet("font-size: 16px; font-weight: bold; color: green;")
+            elif fsm_state == 1:
+                self.lbl_estado_fsm.setText("Estado: ADVERTENCIA")
+                self.lbl_estado_fsm.setStyleSheet("font-size: 16px; font-weight: bold; color: yellow;")
+            elif fsm_state == 2:
+                self.lbl_estado_fsm.setText("Estado: PÉRDIDA (Stall)")
+                self.lbl_estado_fsm.setStyleSheet("font-size: 16px; font-weight: bold; color: red;")
+            elif fsm_state == 3:
+                self.lbl_estado_fsm.setText("Estado: PICADO (Dive)")
+                self.lbl_estado_fsm.setStyleSheet("font-size: 16px; font-weight: bold; color: purple;")
+            elif fsm_state == 4:
+                self.lbl_estado_fsm.setText("Estado: IMPACTO")
+                self.lbl_estado_fsm.setStyleSheet("font-size: 16px; font-weight: bold; color: darkred;")
+            elif fsm_state == 5:
+                self.lbl_estado_fsm.setText("Estado: RECUPERACIÓN")
+                self.lbl_estado_fsm.setStyleSheet("font-size: 16px; font-weight: bold; color: cyan;")
+
     def _on_inference_updated(self, result: dict):
         riesgo = result.get('riesgo_salud', 0.0)
         alerta_roja = result.get('alerta_roja_eicas', False)
@@ -525,12 +592,18 @@ class EngineeringWorkbench(QMainWindow):
         if alerta_roja:
             self.lbl_alerta.setText("Estado: ¡ALERTA STALL/DIVE!")
             self.lbl_alerta.setStyleSheet("color: red; font-weight: bold;")
+            self.lbl_estado_ia.setText("Estado: ¡ALERTA STALL/DIVE!")
+            self.lbl_estado_ia.setStyleSheet("font-size: 16px; font-weight: bold; color: red;")
         elif alerta_amarilla:
             self.lbl_alerta.setText("Estado: PRE-ALERTA (Stall inminente)")
             self.lbl_alerta.setStyleSheet("color: orange; font-weight: bold;")
+            self.lbl_estado_ia.setText("Estado: PRE-ALERTA")
+            self.lbl_estado_ia.setStyleSheet("font-size: 16px; font-weight: bold; color: orange;")
         else:
             self.lbl_alerta.setText("Estado: NORMAL")
             self.lbl_alerta.setStyleSheet("color: green; font-weight: bold;")
+            self.lbl_estado_ia.setText("Estado: NORMAL")
+            self.lbl_estado_ia.setStyleSheet("font-size: 16px; font-weight: bold; color: green;")
 
     def _mostrar_error(self, msg: str):
         self.statusBar().showMessage(f"ERROR: {msg}")

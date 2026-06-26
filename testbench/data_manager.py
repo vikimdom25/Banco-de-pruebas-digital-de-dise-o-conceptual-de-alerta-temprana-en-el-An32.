@@ -7,13 +7,14 @@ from PyQt6.QtCore import QObject, QTimer
 
 from config import RUTA_HDF5, RUTA_CSV_FALLBACK, DT, FRECUENCIA_HZ
 from signals import event_bus
-from fsm import calcular_fsm_etiquetas
+from fsm import calcular_fsm_etiquetas, FSMRealtimeEvaluator
 
 class DataManager(QObject):
     def __init__(self):
         super().__init__()
         self.vuelo_actual_data = []
         self.current_step = 0
+        self.fsm_evaluator = FSMRealtimeEvaluator()
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick_simulacion)
         self.last_ruta_hdf5 = None
@@ -55,6 +56,7 @@ class DataManager(QObject):
 
     def _finalizar_carga(self):
         if self.vuelo_actual_data:
+            self.fsm_evaluator = FSMRealtimeEvaluator()
             total_pasos = len(self.vuelo_actual_data)
             self.current_step = 0
             event_bus.vuelo_cargado.emit(total_pasos)
@@ -237,6 +239,12 @@ class DataManager(QObject):
     def _seek(self, idx: int):
         if 0 <= idx < len(self.vuelo_actual_data):
             self.current_step = idx
+
+            # Recalculate FSM Evaluator state
+            self.fsm_evaluator = FSMRealtimeEvaluator()
+            for i in range(self.current_step):
+                self.fsm_evaluator.evaluate(self.vuelo_actual_data[i])
+
             fila = self.vuelo_actual_data[self.current_step].copy()
 
             # Extraemos TODOS los datos anteriores para reconstruir la gráfica
@@ -259,5 +267,10 @@ class DataManager(QObject):
     def _emit_telemetry(self):
         if self.vuelo_actual_data:
             fila = self.vuelo_actual_data[self.current_step].copy()
+
+            # Evaluación en tiempo real (Ground Truth)
+            fsm_realtime_state = self.fsm_evaluator.evaluate(fila)
+            fila['FSM_Realtime_State'] = fsm_realtime_state
+
             fila['es_salto'] = False
             event_bus.telemetry_updated.emit(fila)
