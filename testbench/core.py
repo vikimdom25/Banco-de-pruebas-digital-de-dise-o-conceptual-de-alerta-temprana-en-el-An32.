@@ -22,6 +22,7 @@ from config import RUTA_XML_PROTOCOL, DIR_LOGS
 from signals import event_bus
 from data_manager import DataManager
 from modeldriver import ModelWorker
+from panel_variables_vs_tiempo import PanelVariableVsTiempo
 
 import sys
 import os
@@ -48,6 +49,11 @@ class EngineeringWorkbench(QMainWindow):
         self.tab_logger = QWidget()
         self.tabs.addTab(self.tab_logger, "Live UDP Acquisition")
         self._init_logger_tab()
+
+        # Pestaña 3: Variables vs Tiempo (Histórico)
+        self.tab_historico = QWidget()
+        self.tabs.addTab(self.tab_historico, "Historical Data Plot")
+        self._init_historico_tab()
 
         self._init_menu_bar()
 
@@ -120,6 +126,13 @@ class EngineeringWorkbench(QMainWindow):
 
         # Cargar el vuelo al iniciar
         self.data_manager.cargar_vuelo()
+
+    def _init_historico_tab(self):
+        layout = QVBoxLayout(self.tab_historico)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self.panel_graficas = PanelVariableVsTiempo()
+        layout.addWidget(self.panel_graficas)
 
     def _init_logger_tab(self):
         layout = QVBoxLayout(self.tab_logger)
