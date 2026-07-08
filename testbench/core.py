@@ -381,9 +381,9 @@ class EngineeringWorkbench(QMainWindow):
         self.replay_window.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, dock_graph)
 
         # ==========================================
-        # 4. DOCK DERECHO: Instrumentos e Inferencia (EICAS)
+        # 4. DOCK DERECHO: Instrumentos e Inferencia (CAS)
         # ==========================================
-        dock_instruments = QDockWidget("EICAS & Instruments", self.replay_window)
+        dock_instruments = QDockWidget("CAS & Instruments", self.replay_window)
         dock_instruments.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
 
         panel_derecho = QWidget()
@@ -406,7 +406,7 @@ class EngineeringWorkbench(QMainWindow):
         marco_inferencia.setStyleSheet("background-color: #383838; border-radius: 5px; padding: 10px;")
         layout_inferencia = QVBoxLayout(marco_inferencia)
         
-        lbl_titulo_ml = QLabel("PREDICCIÓN DEL MODELO (ML) - EICAS")
+        lbl_titulo_ml = QLabel("PREDICCIÓN DEL MODELO (ML) - CAS")
         lbl_titulo_ml.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl_titulo_ml.setStyleSheet("font-weight: bold; color: #00BFFF; font-size: 14px;")
         

@@ -69,6 +69,10 @@ class PanelVariableVsTiempo(QtWidgets.QWidget):
         self.selector.setMaximumHeight(80) # Hacer el selector más pequeño
         self.selector.itemSelectionChanged.connect(self.actualizar_grafica)
 
+        self.cb_sombras_fsm = QtWidgets.QCheckBox("Mostrar Sombras de Estado FSM (Ground Truth)")
+        self.cb_sombras_fsm.setChecked(True)
+        self.cb_sombras_fsm.stateChanged.connect(self.actualizar_grafica)
+
         event_bus.dataframe_ready.connect(self.cargar_nuevo_df)
 
         # Widget de Gráfico
@@ -86,6 +90,7 @@ class PanelVariableVsTiempo(QtWidgets.QWidget):
         label_selector = QtWidgets.QLabel("Selecciona variables para graficar (Ctrl/Shift para múltiple):")
         layout.addWidget(label_selector)
         layout.addWidget(self.selector)
+        layout.addWidget(self.cb_sombras_fsm)
         layout.addWidget(self.plot_widget)
 
         # Graficar inicialmente las primeras variables (opcional)
@@ -113,8 +118,69 @@ class PanelVariableVsTiempo(QtWidgets.QWidget):
 
         self.actualizar_grafica()
 
+    def _dibujar_fondos_fsm(self):
+        if not self.cb_sombras_fsm.isChecked():
+            return
+
+        fsm_col = None
+        if 'FSM_Realtime_State' in self.df.columns:
+            fsm_col = 'FSM_Realtime_State'
+        elif 'FSM_State' in self.df.columns:
+            fsm_col = 'FSM_State'
+
+        if fsm_col is None:
+            return
+
+        # Determinar el eje de tiempo
+        if 'timestamp_ms' in self.df.columns:
+            tiempo = self.df['timestamp_ms'] / 1000.0
+        elif 'timestamp' in self.df.columns:
+            tiempo = self.df['timestamp']
+        else:
+            tiempo = np.arange(len(self.df))
+
+        tiempos = tiempo.to_numpy()
+        estados = self.df[fsm_col].to_numpy()
+
+        # Colores por estado (mismo mapping que en el Dock)
+        colores = {
+            1: QtGui.QColor(255, 255, 0, 50),     # Amarillo translúcido (Advertencia)
+            2: QtGui.QColor(255, 0, 0, 70),       # Rojo translúcido (Pérdida/Stall)
+            3: QtGui.QColor(128, 0, 128, 70),     # Morado translúcido (Picado/Dive)
+            4: QtGui.QColor(139, 0, 0, 90),       # Rojo oscuro (Impacto)
+            5: QtGui.QColor(0, 255, 255, 60)      # Cyan translúcido (Recuperación)
+        }
+
+        estado_actual = 0
+        inicio_idx = 0
+
+        for i in range(len(estados)):
+            if estados[i] != estado_actual:
+                # Cerrar región anterior si no era Normal (0)
+                if estado_actual in colores and i > 0:
+                    t_inicio = tiempos[inicio_idx]
+                    t_fin = tiempos[i-1]
+                    if t_fin > t_inicio:
+                        region = pg.LinearRegionItem(values=[t_inicio, t_fin], movable=False, brush=colores[estado_actual], pen=None)
+                        self.plot_widget.addItem(region)
+
+                estado_actual = estados[i]
+                inicio_idx = i
+
+        # Cerrar la última región si quedó abierta al final
+        if estado_actual in colores and len(estados) > 0:
+            t_inicio = tiempos[inicio_idx]
+            t_fin = tiempos[-1]
+            if t_fin > t_inicio:
+                region = pg.LinearRegionItem(values=[t_inicio, t_fin], movable=False, brush=colores[estado_actual], pen=None)
+                self.plot_widget.addItem(region)
+
     def actualizar_grafica(self):
         self.plot_widget.clear() # Limpiar plots anteriores
+
+        # Dibujar fondos FSM si está activado
+        self._dibujar_fondos_fsm()
+
         # La leyenda se limpia con clear(), pero se puede volver a añadir si se desea
         # o configurarla para que persista si los items se eliminan individualmente.
         # Por simplicidad, se recrea con cada update si es necesario.
