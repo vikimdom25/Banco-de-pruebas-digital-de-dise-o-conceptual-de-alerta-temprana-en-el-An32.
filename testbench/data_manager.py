@@ -2,8 +2,9 @@ import os
 import h5py
 import pandas as pd
 import numpy as np
+import time
 from scipy.interpolate import PchipInterpolator
-from PyQt6.QtCore import QObject, QTimer
+from PyQt6.QtCore import QObject, QTimer, Qt
 
 from config import RUTA_HDF5, RUTA_CSV_FALLBACK, DT, FRECUENCIA_HZ
 from signals import event_bus
@@ -16,9 +17,13 @@ class DataManager(QObject):
         self.current_step = 0
         self.fsm_evaluator = FSMRealtimeEvaluator()
         self.timer = QTimer(self)
+        self.timer.setTimerType(Qt.TimerType.PreciseTimer)
         self.timer.timeout.connect(self._tick_simulacion)
         self.last_ruta_hdf5 = None
         self.speed_multiplier = 1.0
+
+        self.last_play_time = None
+        self.base_step_at_play = 0
 
         # Conectar a señales globales de control
         event_bus.play_requested.connect(self._play)
@@ -214,6 +219,10 @@ class DataManager(QObject):
             event_bus.error_ocurrido.emit(f"Error CSV: {e}")
 
     def set_speed_multiplier(self, mult: float):
+        if self.timer.isActive():
+            self.base_step_at_play = self.current_step
+            self.last_play_time = time.perf_counter()
+
         self.speed_multiplier = mult
         if self.timer.isActive():
             if self.speed_multiplier > 10.0: # MAX mode (as fast as possible)
@@ -225,6 +234,9 @@ class DataManager(QObject):
 
     def _play(self):
         if not self.vuelo_actual_data: return
+        self.base_step_at_play = self.current_step
+        self.last_play_time = time.perf_counter()
+
         if self.speed_multiplier > 10.0:
             self.timer.start(0)
         else:
@@ -239,6 +251,9 @@ class DataManager(QObject):
     def _seek(self, idx: int):
         if 0 <= idx < len(self.vuelo_actual_data):
             self.current_step = idx
+            self.base_step_at_play = self.current_step
+            if self.timer.isActive():
+                self.last_play_time = time.perf_counter()
 
             # Recalculate FSM Evaluator state
             self.fsm_evaluator = FSMRealtimeEvaluator()
@@ -257,10 +272,46 @@ class DataManager(QObject):
             event_bus.telemetry_updated.emit(fila)
 
     def _tick_simulacion(self):
-        if self.current_step < len(self.vuelo_actual_data) - 1:
+        if self.current_step >= len(self.vuelo_actual_data) - 1:
+            self._pause()
+            event_bus.estado_sistema_cambiado.emit("Fin de la simulación.")
+            return
+
+        if self.speed_multiplier > 10.0:
             self.current_step += 1
             self._emit_telemetry()
         else:
+            now = time.perf_counter()
+            elapsed_sec = now - self.last_play_time
+            target_steps_advanced = int(elapsed_sec * self.speed_multiplier * FRECUENCIA_HZ)
+            target_step = self.base_step_at_play + target_steps_advanced
+
+            target_step = min(target_step, len(self.vuelo_actual_data) - 1)
+
+            if target_step > self.current_step:
+                steps_jumped = target_step - self.current_step
+
+                if steps_jumped == 1:
+                    self.current_step = target_step
+                    self._emit_telemetry()
+                else:
+                    # Catch-up efficiently for dropped frames without recreating from 0
+                    for i in range(self.current_step, target_step):
+                        self.fsm_evaluator.evaluate(self.vuelo_actual_data[i])
+
+                    self.current_step = target_step
+
+                    fila = self.vuelo_actual_data[self.current_step].copy()
+                    fsm_realtime_state = self.fsm_evaluator.evaluate(fila)
+                    fila['FSM_Realtime_State'] = fsm_realtime_state
+
+                    inicio_ml = max(0, self.current_step - 499)
+                    fila['ventana_salto'] = self.vuelo_actual_data[inicio_ml : self.current_step + 1]
+                    fila['historia_completa'] = self.vuelo_actual_data[0 : self.current_step + 1]
+                    fila['es_salto'] = True
+                    event_bus.telemetry_updated.emit(fila)
+
+        if self.current_step >= len(self.vuelo_actual_data) - 1:
             self._pause()
             event_bus.estado_sistema_cambiado.emit("Fin de la simulación.")
 
