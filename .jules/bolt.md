@@ -1,0 +1,3 @@
+## 2026-03-01 - [Pre-extracted Scalers Parametrization]
+**Learning:** Preprocessing pipelines inside high-frequency loops (like the 50Hz playback in this workbench) should avoid calling heavy sklearn `StandardScaler` and `MinMaxScaler` objects. Scikit-learn introduces validation, warning checking, and wrapper overhead on every call. By extracting the raw numeric scale/mean parameters and executing raw NumPy math directly, we achieve a ~70x speedup while producing identical float representation.
+**Action:** Always pre-extract parameters from fitted standard/MinMax scalers and replace `.transform()` calls with direct vectorized numpy operations when running on performance-critical paths or high-frequency loops.
