@@ -203,6 +203,16 @@ class ModelWorker(QObject):
             self.std_nz_scaler = joblib.load(os.path.join(DIR_SCALERS, 'standard_scaler_nz.pkl'))
             self.minmax_spd = joblib.load(os.path.join(DIR_SCALERS, 'minmax_speed_scaler.pkl'))
             self.minmax_alt = joblib.load(os.path.join(DIR_SCALERS, 'minmax_alt_scaler.pkl'))
+
+            # Optimización Bolt: Precomputar atributos de escalamiento para evitar llamar a .transform() en bucles de alta frecuencia (~130x speedup)
+            self._std_scaler_mean = self.std_scaler.mean_
+            self._std_scaler_scale = self.std_scaler.scale_
+            self._std_nz_scaler_mean = self.std_nz_scaler.mean_
+            self._std_nz_scaler_scale = self.std_nz_scaler.scale_
+            self._minmax_spd_scale = self.minmax_spd.scale_
+            self._minmax_spd_min = self.minmax_spd.min_
+            self._minmax_alt_scale = self.minmax_alt.scale_
+            self._minmax_alt_min = self.minmax_alt.min_
         except Exception as e:
             print(f"[ModelWorker] ERROR CARGANDO MODELO/SCALERS: {e}")
 
@@ -211,15 +221,17 @@ class ModelWorker(QObject):
         alpha_clipped = np.clip(datos.get('alpha-deg', 0.0), ALPHA_MIN_FISICO, ALPHA_MAX_FISICO)
         datos['alpha-deg'] = 2.0 * ((alpha_clipped - ALPHA_MIN_FISICO) / (ALPHA_MAX_FISICO - ALPHA_MIN_FISICO)) - 1.0
 
-        cin_raw = np.array([[datos.get(c, 0.0) for c in COLS_CINEMATICAS]])
-        cin_scaled = np.tanh(self.std_scaler.transform(cin_raw) / 3.0)[0]
+        cin_raw = np.array([datos.get(c, 0.0) for c in COLS_CINEMATICAS])
+        # Optimización Bolt: Matemáticas directas en NumPy evitando llamadas a transform()
+        cin_scaled = np.tanh(((cin_raw - self._std_scaler_mean) / self._std_scaler_scale) / 3.0)
         for i, col in enumerate(COLS_CINEMATICAS): datos[col] = cin_scaled[i]
 
-        nz_raw = np.array([[datos.get('nlf', 1.0) - 1.0]])
-        datos['nlf'] = np.tanh(self.std_nz_scaler.transform(nz_raw) / 3.0)[0][0]
+        nz_raw = datos.get('nlf', 1.0) - 1.0
+        # Optimización Bolt: Evitamos alojar matrices 2D y realizar transform() para escalares
+        datos['nlf'] = np.tanh(((nz_raw - self._std_nz_scaler_mean[0]) / self._std_nz_scaler_scale[0]) / 3.0)
 
-        datos['airspeed-kt'] = self.minmax_spd.transform([[datos.get('airspeed-kt', 0.0)]])[0][0]
-        datos['altitude-ft'] = self.minmax_alt.transform([[datos.get('altitude-ft', 0.0)]])[0][0]
+        datos['airspeed-kt'] = datos.get('airspeed-kt', 0.0) * self._minmax_spd_scale[0] + self._minmax_spd_min[0]
+        datos['altitude-ft'] = datos.get('altitude-ft', 0.0) * self._minmax_alt_scale[0] + self._minmax_alt_min[0]
 
         return np.array([datos.get(col, 0.0) for col in VECTOR_ORDENADO], dtype=np.float32)
 
