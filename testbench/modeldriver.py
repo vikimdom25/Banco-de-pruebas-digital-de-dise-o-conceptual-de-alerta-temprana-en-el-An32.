@@ -238,6 +238,8 @@ class ModelWorker(QObject):
         if len(self.buffer) < VENTANA_BUFFER:
             return
 
+        current_timestamp = datos.get('timestamp_ms', 0.0)
+
         # Inferencia
         tensor = torch.tensor(np.array(self.buffer)).unsqueeze(0).to(self.device)
         with torch.no_grad():
@@ -252,6 +254,7 @@ class ModelWorker(QObject):
 
             # Emitir a la UI
             resultado = {
+                'timestamp_ms': current_timestamp,
                 'clase_actual': clase_actual,
                 'alerta_roja_eicas': alerta_roja,
                 'alerta_amarilla_eicas': alerta_amarilla,

@@ -22,6 +22,7 @@ from config import RUTA_XML_PROTOCOL, DIR_LOGS
 from signals import event_bus
 from data_manager import DataManager
 from modeldriver import ModelWorker
+from panel_variables_vs_tiempo import PanelVariableVsTiempo
 
 import sys
 import os
@@ -49,6 +50,11 @@ class EngineeringWorkbench(QMainWindow):
         self.tabs.addTab(self.tab_logger, "Live UDP Acquisition")
         self._init_logger_tab()
 
+        # Pestaña 3: Variables vs Tiempo (Histórico)
+        self.tab_historico = QWidget()
+        self.tabs.addTab(self.tab_historico, "Historical Data Plot")
+        self._init_historico_tab()
+
         self._init_menu_bar()
 
         # Configurar Barra de Estado
@@ -69,6 +75,10 @@ class EngineeringWorkbench(QMainWindow):
         load_action = QAction("Cargar Dataset (HDF5/CSV)...", self)
         load_action.triggered.connect(self._open_file_dialog)
         file_menu.addAction(load_action)
+
+        export_action = QAction("Exportar Reporte Validación FSM/IA (CSV)...", self)
+        export_action.triggered.connect(self._exportar_validacion)
+        file_menu.addAction(export_action)
 
         view_menu = menubar.addMenu("Ver")
 
@@ -120,6 +130,13 @@ class EngineeringWorkbench(QMainWindow):
 
         # Cargar el vuelo al iniciar
         self.data_manager.cargar_vuelo()
+
+    def _init_historico_tab(self):
+        layout = QVBoxLayout(self.tab_historico)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self.panel_graficas = PanelVariableVsTiempo()
+        layout.addWidget(self.panel_graficas)
 
     def _init_logger_tab(self):
         layout = QVBoxLayout(self.tab_logger)
@@ -358,14 +375,15 @@ class EngineeringWorkbench(QMainWindow):
         
         self.hist_tiempo = []
         self.hist_altitud = []
+        self.historial_predicciones = []
 
         dock_graph.setWidget(self.grafico_altitud)
         self.replay_window.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, dock_graph)
 
         # ==========================================
-        # 4. DOCK DERECHO: Instrumentos e Inferencia (EICAS)
+        # 4. DOCK DERECHO: Instrumentos e Inferencia (CAS)
         # ==========================================
-        dock_instruments = QDockWidget("EICAS & Instruments", self.replay_window)
+        dock_instruments = QDockWidget("CAS & Instruments", self.replay_window)
         dock_instruments.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
 
         panel_derecho = QWidget()
@@ -388,7 +406,7 @@ class EngineeringWorkbench(QMainWindow):
         marco_inferencia.setStyleSheet("background-color: #383838; border-radius: 5px; padding: 10px;")
         layout_inferencia = QVBoxLayout(marco_inferencia)
         
-        lbl_titulo_ml = QLabel("PREDICCIÓN DEL MODELO (ML) - EICAS")
+        lbl_titulo_ml = QLabel("PREDICCIÓN DEL MODELO (ML) - CAS")
         lbl_titulo_ml.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl_titulo_ml.setStyleSheet("font-weight: bold; color: #00BFFF; font-size: 14px;")
         
@@ -405,6 +423,56 @@ class EngineeringWorkbench(QMainWindow):
 
         dock_instruments.setWidget(panel_derecho)
         self.replay_window.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock_instruments)
+
+        # ==========================================
+        # 5. DOCK IZQUIERDO: FSM Ground Truth vs IA
+        # ==========================================
+        dock_fsm = QDockWidget("FSM Ground Truth", self.replay_window)
+        dock_fsm.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
+
+        panel_fsm = QWidget()
+        panel_fsm.setMinimumWidth(300)
+        layout_fsm = QVBoxLayout(panel_fsm)
+
+        lbl_titulo_fsm = QLabel("LABORATORIO DE VALIDACIÓN FSM")
+        lbl_titulo_fsm.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_titulo_fsm.setStyleSheet("font-weight: bold; color: #FFFFFF; font-size: 14px;")
+
+        # Ground Truth Física
+        marco_fisica = QFrame()
+        marco_fisica.setStyleSheet("background-color: #2b2b2b; border-radius: 5px; padding: 10px;")
+        layout_fisica = QVBoxLayout(marco_fisica)
+        lbl_titulo_fisica = QLabel("FSM Ground Truth (Física)")
+        lbl_titulo_fisica.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_estado_fsm = QLabel("Estado: --")
+        self.lbl_estado_fsm.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_estado_fsm.setStyleSheet("font-size: 16px; font-weight: bold; color: gray;")
+        layout_fisica.addWidget(lbl_titulo_fisica)
+        layout_fisica.addWidget(self.lbl_estado_fsm)
+
+        # Predicción IA
+        marco_ia = QFrame()
+        marco_ia.setStyleSheet("background-color: #2b2b2b; border-radius: 5px; padding: 10px;")
+        layout_ia = QVBoxLayout(marco_ia)
+        lbl_titulo_ia = QLabel("Predicción Modelo (IA)")
+        lbl_titulo_ia.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_estado_ia = QLabel("Estado: --")
+        self.lbl_estado_ia.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_estado_ia.setStyleSheet("font-size: 16px; font-weight: bold; color: gray;")
+        self.lbl_t2s = QLabel("T2S: --")
+        self.lbl_t2s.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_t2s.setStyleSheet("font-size: 14px; color: #aaaaaa;")
+        layout_ia.addWidget(lbl_titulo_ia)
+        layout_ia.addWidget(self.lbl_estado_ia)
+        layout_ia.addWidget(self.lbl_t2s)
+
+        layout_fsm.addWidget(lbl_titulo_fsm)
+        layout_fsm.addWidget(marco_fisica)
+        layout_fsm.addWidget(marco_ia)
+        layout_fsm.addStretch()
+
+        dock_fsm.setWidget(panel_fsm)
+        self.replay_window.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, dock_fsm)
 
         # Conectar actualizaciones del UI a las señales
         event_bus.vuelos_disponibles.connect(self._on_vuelos_disponibles)
@@ -447,6 +515,7 @@ class EngineeringWorkbench(QMainWindow):
         self.slider_tiempo.setValue(0)
         self.hist_tiempo.clear()
         self.hist_altitud.clear()
+        self.historial_predicciones.clear()
 
     def _toggle_play(self):
         self.playing = not self.playing
@@ -491,14 +560,15 @@ class EngineeringWorkbench(QMainWindow):
             yaw = data.get('heading-deg', 0)
 
             self.avion_3d.resetTransform()
-            self.avion_3d.rotate(yaw, 0, 0, 1)
-            self.avion_3d.rotate(-pitch, 1, 0, 0)
-            self.avion_3d.rotate(roll, 0, 1, 0)
+            # X=Right, Y=Forward, Z=Up
+            self.avion_3d.rotate(-yaw, 0, 0, 1)    # Yaw (Heading): -Z is right turn
+            self.avion_3d.rotate(pitch, 1, 0, 0)   # Pitch: +X is nose up
+            self.avion_3d.rotate(-roll, 0, 1, 0)   # Roll: -Y is right wing down
 
             self.avion_ejes.resetTransform()
-            self.avion_ejes.rotate(yaw, 0, 0, 1)
-            self.avion_ejes.rotate(-pitch, 1, 0, 0)
-            self.avion_ejes.rotate(roll, 0, 1, 0)
+            self.avion_ejes.rotate(-yaw, 0, 0, 1)
+            self.avion_ejes.rotate(pitch, 1, 0, 0)
+            self.avion_ejes.rotate(-roll, 0, 1, 0)
 
             # Actualizar Gráfica
             historia = data.get('historia_completa', [])
@@ -516,21 +586,90 @@ class EngineeringWorkbench(QMainWindow):
             except Exception as e:
                 pass
 
+            # Actualizar FSM Ground Truth
+            fsm_state = data.get('FSM_Realtime_State', data.get('FSM_State', 0))
+            if fsm_state == 0:
+                self.lbl_estado_fsm.setText("Estado: NORMAL")
+                self.lbl_estado_fsm.setStyleSheet("font-size: 16px; font-weight: bold; color: green;")
+            elif fsm_state == 1:
+                self.lbl_estado_fsm.setText("Estado: ADVERTENCIA")
+                self.lbl_estado_fsm.setStyleSheet("font-size: 16px; font-weight: bold; color: yellow;")
+            elif fsm_state == 2:
+                self.lbl_estado_fsm.setText("Estado: PÉRDIDA (Stall)")
+                self.lbl_estado_fsm.setStyleSheet("font-size: 16px; font-weight: bold; color: red;")
+            elif fsm_state == 3:
+                self.lbl_estado_fsm.setText("Estado: PICADO (Dive)")
+                self.lbl_estado_fsm.setStyleSheet("font-size: 16px; font-weight: bold; color: purple;")
+            elif fsm_state == 4:
+                self.lbl_estado_fsm.setText("Estado: IMPACTO")
+                self.lbl_estado_fsm.setStyleSheet("font-size: 16px; font-weight: bold; color: darkred;")
+            elif fsm_state == 5:
+                self.lbl_estado_fsm.setText("Estado: RECUPERACIÓN")
+                self.lbl_estado_fsm.setStyleSheet("font-size: 16px; font-weight: bold; color: cyan;")
+
     def _on_inference_updated(self, result: dict):
+        self.historial_predicciones.append(result)
+
         riesgo = result.get('riesgo_salud', 0.0)
+        sigma = result.get('sigma', 0.0)
         alerta_roja = result.get('alerta_roja_eicas', False)
         alerta_amarilla = result.get('alerta_amarilla_eicas', False)
 
         self.lbl_salud.setText(f"Índice de Riesgo: {riesgo:.2f}")
+
+        # Calcular T2S (Asumiendo que riesgo = 1 - (T2S/30.0))
+        t2s = (1.0 - riesgo) * 30.0
+        t2s_sigma = sigma * 30.0
+        self.lbl_t2s.setText(f"T2S: {t2s:.1f}s ± {t2s_sigma:.1f}s")
         if alerta_roja:
             self.lbl_alerta.setText("Estado: ¡ALERTA STALL/DIVE!")
             self.lbl_alerta.setStyleSheet("color: red; font-weight: bold;")
+            self.lbl_estado_ia.setText("Estado: ¡ALERTA STALL/DIVE!")
+            self.lbl_estado_ia.setStyleSheet("font-size: 16px; font-weight: bold; color: red;")
         elif alerta_amarilla:
             self.lbl_alerta.setText("Estado: PRE-ALERTA (Stall inminente)")
             self.lbl_alerta.setStyleSheet("color: orange; font-weight: bold;")
+            self.lbl_estado_ia.setText("Estado: PRE-ALERTA")
+            self.lbl_estado_ia.setStyleSheet("font-size: 16px; font-weight: bold; color: orange;")
         else:
             self.lbl_alerta.setText("Estado: NORMAL")
             self.lbl_alerta.setStyleSheet("color: green; font-weight: bold;")
+            self.lbl_estado_ia.setText("Estado: NORMAL")
+            self.lbl_estado_ia.setStyleSheet("font-size: 16px; font-weight: bold; color: green;")
+
+    def _exportar_validacion(self):
+        if not self.data_manager.vuelo_actual_data:
+            self._mostrar_error("No hay datos de vuelo cargados para exportar.")
+            return
+
+        ruta, _ = QFileDialog.getSaveFileName(self, "Exportar Reporte de Validación", "", "CSV Files (*.csv)")
+        if not ruta:
+            return
+
+        try:
+            # Crear DataFrame de Física (Ground Truth)
+            df_fisica = pd.DataFrame(self.data_manager.vuelo_actual_data)
+            columnas_fisica = ['timestamp_ms', 'FSM_Realtime_State', 'FSM_State', 'altitude-ft', 'alpha-deg', 'nlf', 'vertical-speed-fps']
+            columnas_fisica_existentes = [col for col in columnas_fisica if col in df_fisica.columns]
+            df_fisica = df_fisica[columnas_fisica_existentes]
+
+            # Crear DataFrame de Predicciones IA
+            if self.historial_predicciones:
+                df_ia = pd.DataFrame(self.historial_predicciones)
+                # Promediar o eliminar duplicados si hay para el mismo timestamp
+                if 'timestamp_ms' in df_ia.columns:
+                    df_ia = df_ia.drop_duplicates(subset=['timestamp_ms'], keep='last')
+                    df_export = pd.merge(df_fisica, df_ia, on='timestamp_ms', how='left')
+                else:
+                    df_export = df_fisica
+            else:
+                df_export = df_fisica
+
+            df_export.to_csv(ruta, index=False)
+            self.statusBar().showMessage(f"Reporte exportado exitosamente a {ruta}")
+            self.statusBar().setStyleSheet("color: green; font-weight: bold;")
+        except Exception as e:
+            self._mostrar_error(f"Error exportando reporte: {e}")
 
     def _mostrar_error(self, msg: str):
         self.statusBar().showMessage(f"ERROR: {msg}")

@@ -46,8 +46,7 @@ Para promover la reproducibilidad, el dataset se encuentra en acceso abierto baj
     └── models/
         └── antonov_v8_produccion.pt  # Pesos finales del modelo (V8)
 
-🎓 Autores
-Danna Luna Santa Perilla - Investigadora principal
+🎓 Autor
 Santiago Sepulveda Otero - Investigador principal
 Director: Daniel Santiago Gutiérrez Pacheco
 
